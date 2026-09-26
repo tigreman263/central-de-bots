@@ -8,3 +8,4 @@ __pycache__/
 *.lock
 secret_key
 *.json.bak
+analise-chatgpt.md

@@ -342,3 +342,51 @@ def test_deleting_stopped_bots_only_touches_the_current_tab(panel):
     assert botstore.get(conn, sim) is None and botstore.get(conn, tn) is not None   # o da Testnet ficou
     c.post(f"/bots/{tn}/apagar", data={"csrf": tok})
     assert botstore.get(conn, tn) is None
+
+
+# ---------- duplicado: criar em simulação também cria na Testnet ----------
+def _sim_form(c, **extra):
+    return {"csrf": csrf(c, "/bots/novo"), "pair": "ABCUSDT", "capital": "77", "modo": "sim", "step": "preview", **extra}
+
+
+def test_creating_in_simulation_can_also_create_the_duplicate_on_the_testnet(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    page = c.get("/bots/novo").get_data(as_text=True)
+    assert 'name="twin"' in page and "duplicado na <b>Testnet</b>" in page and "checked>" not in page.split('name="twin"')[1][:40]
+    preview = c.post("/bots/novo", data=_sim_form(c, twin="1")).get_data(as_text=True)
+    assert "Duplicado na Testnet" in preview and 'name="twin" value="1"' in preview
+    assert not botstore.all_bots(conn)                                                # a pré-visualização não cria nada
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", step="create"))
+    rows = botstore.all_bots(conn)
+    assert len(rows) == 2
+    tn = next(x for x in rows if x["mode"] == "testnet")
+    sim = next(x for x in rows if x["mode"] == "sim")
+    assert sim["twin_of"] == tn["id"] and sim["source"] == "testnet" and tn["source"] == "testnet"
+    assert r.headers["Location"].endswith(f"/bots/{sim['id']}")                        # abre o bot que pediste (simulação)
+    assert json.loads(sim["rules"]) == json.loads(tn["rules"]) and sim["capital_usdt"] == tn["capital_usdt"]
+    assert "Criei também o duplicado" in c.get(f"/bots/{sim['id']}").get_data(as_text=True)
+    assert "Simulação vs Testnet" in c.get("/estatisticas").get_data(as_text=True)
+
+
+def test_creating_in_simulation_without_the_option_stays_only_in_simulation(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    c.post("/bots/novo", data=_sim_form(c, step="create"))
+    rows = botstore.all_bots(conn)
+    assert len(rows) == 1 and rows[0]["mode"] == "sim" and rows[0]["source"] == "mainnet" and rows[0]["twin_of"] is None
+
+
+def test_the_duplicate_is_refused_when_the_pair_or_the_testnet_keys_are_missing(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    ex.trading_symbols = lambda: {"BTCUSDT"}                                          # o par não existe na Testnet
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", step="create"), follow_redirects=True)
+    assert "não existe na Testnet" in r.get_data(as_text=True) and not botstore.all_bots(conn)
+    ex.trading_symbols = lambda: {"ABCUSDT"}
+    ex.has_keys = False                                                               # sem chaves da Testnet
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", step="create"), follow_redirects=True)
+    assert "Faltam as chaves da Testnet" in r.get_data(as_text=True) and not botstore.all_bots(conn)
+    ex.has_keys = True
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", step="create"))              # tudo em ordem: cria os dois
+    assert len(botstore.all_bots(conn)) == 2

@@ -27,8 +27,9 @@
     <li>Acima do intervalo: espera {{ p.upper_wait_minutes }} minutos e recentra no máximo {{ p.max_recenter_per_day }} vezes por dia.</li>
     {% if mode == 'testnet' %}<li>Na Testnet as comissões, os preços e as execuções são os reais da Testnet (a comissão de 0,1% e o deslizamento só servem de margem de segurança ao montar a grelha).</li>
     <li>Cada ordem passa pela guarda de risco antes de sair, tem um id único e, se o processo morrer, retoma sem duplicar. O PARAR TUDO cancela tudo em poucos segundos.</li>
-    {% if twin %}<li>Vai ser criado também um bot gémeo em simulação, para comparares os resultados.</li>{% endif %}
+    {% if twin and mode == 'testnet' %}<li>Vai ser criado também um bot gémeo em simulação, com as mesmas velas da Testnet, para comparares os resultados.</li>{% endif %}
     {% else %}<li>Comissão simulada de 0,1% por execução e deslizamento de 0,05% contra ti. Só conta como executada se o preço passar o nível.</li>{% endif %}
+    {% if twin and mode == 'sim' %}<li><b>Duplicado na Testnet:</b> vai ser criado também um bot na Testnet neste par, com ordens reais na conta fictícia. Os dois usam o preço e as regras da Testnet, para poderes comparar os resultados.</li>{% endif %}
   </ul>
   <p class="tag">Numa queda forte a grelha perde: as proteções limitam a perda, não a evitam. Nada disto garante lucro.</p>
 </div>

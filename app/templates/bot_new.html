@@ -44,7 +44,10 @@
   <div class="card"><label style="cursor:pointer"><input type="checkbox" name="never_below_cost" value="1">
     <b>Nunca vender abaixo do custo</b> (opcional, desligada por defeito). Se o stop-loss disparar ou pararem o bot com prejuízo, a moeda fica guardada em vez de ser vendida; o bot pausa e espera.</label></div>
   {% if mode == 'testnet' %}<div class="card"><label style="cursor:pointer"><input type="checkbox" name="twin" value="1" checked>
-    Criar também um bot gémeo em <b>simulação</b> no mesmo par, com as mesmas velas da Testnet, para comparar durante os 7 dias.</label></div>{% endif %}
+    Criar também um bot gémeo em <b>simulação</b> no mesmo par, com as mesmas velas da Testnet, para comparar durante os 7 dias.</label></div>
+  {% else %}<div class="card"><label style="cursor:pointer"><input type="checkbox" name="twin" value="1">
+    Criar também um duplicado na <b>Testnet</b> no mesmo par (bot com ordens reais na conta fictícia), para comparar durante os 7 dias.</label>
+    <p class="tag">Os dois bots passam a usar o preço e as regras da Testnet, para a comparação ser justa. Precisa das <a href="{{ url_for('bot_links') }}">chaves da Testnet</a>, de USDT de teste na conta e de o par existir lá.</p></div>{% endif %}
   <div class="row"><button class="btn pri">Ver a grelha</button>
     <a class="btn" href="{{ url_for('bot_new', atualizar=1, modo=mode) }}">Atualizar sugestões</a></div>
 </form>

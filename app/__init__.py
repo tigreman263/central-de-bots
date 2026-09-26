@@ -758,7 +758,7 @@ def create_app(test_config=None):
                 cache.update(data=[], error=f"Testnet: {exc}")
         if request.method == "POST":
             pair = request.form.get("pair", "")
-            twin = request.form.get("twin") == "1" and mode == "testnet"
+            twin = request.form.get("twin") == "1"                     # duplicado no outro tipo (sim <-> Testnet)
             never_below = request.form.get("never_below_cost") == "1"
             try:
                 capital = float(request.form.get("capital", "").replace(",", "."))
@@ -769,19 +769,31 @@ def create_app(test_config=None):
                 flash("Escolhe um dos pares sugeridos e indica um capital maior que zero.", "error")
                 return redirect(url_for("bot_new", modo=mode))
             try:
-                price, rules, params, g = preview_grid(pair, capital, mode)
+                if twin and mode == "sim":                              # o duplicado na Testnet obriga o par a existir lá
+                    if pair not in make_trader().trading_symbols():
+                        flash(f"O par {pair} não existe na Testnet, por isso não dá para criar o duplicado. "
+                              "Desmarca a opção ou escolhe outro par.", "error")
+                        return redirect(url_for("bot_new", modo=mode))
+                # com duplicado, os dois bots usam o preço e as regras da Testnet (comparação justa)
+                price, rules, params, g = preview_grid(pair, capital, "testnet" if twin else mode)
             except (G.GridRefused, BinanceError, TraderError) as exc:
                 flash(str(exc), "error")
                 return redirect(url_for("bot_new", modo=mode))
             params = {**params, "never_sell_below_cost": never_below}   # opcional por bot, desligada por defeito
             if request.form.get("step") == "create":
-                bid = botstore.create(conn(), pair, capital, rules, params, mode=mode)
-                if twin:                                    # gémeo em simulação, com as mesmas velas da Testnet
-                    botstore.create(conn(), pair, capital, rules, params, mode="sim", source="testnet", twin_of=bid)
+                if twin:                                    # o par: um bot na Testnet e o gémeo em simulação, mesmas velas
+                    tn_id = botstore.create(conn(), pair, capital, rules, params, mode="testnet")
+                    sim_id = botstore.create(conn(), pair, capital, rules, params, mode="sim", source="testnet",
+                                             twin_of=tn_id)
+                    bid = tn_id if mode == "testnet" else sim_id
+                else:
+                    bid = botstore.create(conn(), pair, capital, rules, params, mode=mode)
                 db.log(conn(), f"Bot criado ({'Testnet' if mode == 'testnet' else 'simulação'})",
-                       f"{pair}, capital {capital:g} USDT{' + gémeo em simulação' if twin else ''}")
+                       f"{pair}, capital {capital:g} USDT{' + duplicado no outro tipo (Testnet e simulação)' if twin else ''}")
                 flash("Bot criado e aprovado. O corredor arranca-o no próximo minuto. "
-                      + ("Envia ordens só para a Testnet (dinheiro fictício)." if mode == "testnet"
+                      + ("Criei também o duplicado, para os comparares em Estatísticas: um na Testnet (ordens reais na "
+                         "conta fictícia) e outro em simulação, com as mesmas velas." if twin else
+                         "Envia ordens só para a Testnet (dinheiro fictício)." if mode == "testnet"
                          else "É só simulação."), "ok")
                 return redirect(url_for("bot_detail", bot_id=bid))
             return render_template("bot_preview.html", chosen=chosen, capital=capital, price=price, rules=rules, g=g,

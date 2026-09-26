@@ -25,7 +25,6 @@ def heartbeat_age(conn, now=None):
 def check(conn, state_path, now=None, sender=None):
     """Devolve 'parado', 'voltou' ou None. Só avisa quando há bots ativos à espera do corredor."""
     now = now or time.time()
-    sender = sender or notify.SENDER or notify.send
     state_path = Path(state_path)
     try:
         state = json.loads(state_path.read_text())
@@ -33,20 +32,25 @@ def check(conn, state_path, now=None, sender=None):
         state = {}
     age = heartbeat_age(conn, now)
     active = any(r["status"] != "stopped" for r in botstore.all_bots(conn))
-    creds = keystore.load(notify.TELEGRAM_FILE or keystore.telegram_path())
+    creds = keystore.load(notify.TELEGRAM_FILE or keystore.telegram_path()) if sender else None
+
+    def tell(text):
+        if sender:                                  # (testes) canal único injetado
+            if creds:
+                sender(creds[0], creds[1], text)
+        else:
+            notify.broadcast(conn, text, "alto")    # todos os canais ligados
     result = None
     if active and (age is None or age > MAX_AGE_S):
         if now - state.get("alerted", 0) >= REPEAT_S:
             result = "parado"
             state["alerted"] = now
-            if creds:
-                sender(creds[0], creds[1], "Malha · o corredor dos bots parou de dar sinal"
-                                           + (f" há {int(age // 60)} min." if age is not None else "."))
+            tell("Malha · o corredor dos bots parou de dar sinal"
+                 + (f" há {int(age // 60)} min." if age is not None else "."))
     elif state.get("alerted"):
         result = "voltou"
         state["alerted"] = 0
-        if creds:
-            sender(creds[0], creds[1], "Malha · o corredor voltou a dar sinal.")
+        tell("Malha · o corredor voltou a dar sinal.")
     state_path.write_text(json.dumps(state))
     return result
 

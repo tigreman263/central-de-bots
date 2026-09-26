@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Apagar {{ 'bot' if bots | length == 1 else 'bots' }} · Malha{% endblock %}
+{% block body %}
+<h2>Apagar {{ bots | length }} bot{{ '' if bots | length == 1 else 's' }} parado{{ '' if bots | length == 1 else 's' }}?</h2>
+<p class="sub">Um bot parado não volta a arrancar e continua a ocupar espaço e a aparecer nas listas. Apagar remove-o e tudo o que guardou (ordens, execuções, eventos, gráfico e alertas). Não se pode desfazer.</p>
+<div class="stack">
+  {% for row, eng in bots %}
+  <div class="card">
+    <b>{{ row.pair }}</b> <span class="pill idle">{{ 'TESTNET' if row.mode == 'testnet' else 'SIMULAÇÃO' }}</span>
+    <p class="tag num">Bot {{ row.id }} · capital {{ '%g' % row.capital_usdt }} USDT · {{ row.reason or 'parado' }}</p>
+    {% if eng and eng.s.get('base') and eng.s.base * (eng.s.get('last_close') or 0) >= eng.rules.min_notional %}
+      <p class="flash warnbar">Este bot ainda tem <b class="num">{{ '%.6g' % eng.s.base }} {{ row.pair[:-4] }}</b> guardados (ficou com a moeda porque a regra "nunca vender abaixo do custo" estava ligada). Apagar o bot não vende essa moeda: ela continua na conta, mas o painel deixa de a acompanhar por este bot.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+<form method="post" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="aba" value="{{ aba }}">
+  <a class="btn" href="{{ back }}">Cancelar</a>
+  <button class="btn danger big-stop">Apagar {{ 'bot' if bots | length == 1 else 'bots' }}</button>
+</form>
+{% endblock %}

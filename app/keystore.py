@@ -22,6 +22,11 @@ def telegram_path():
     return config.keys_dir() / "telegram.json"
 
 
+def whatsapp_path():
+    """Ligação do WhatsApp (CallMeBot ou Cloud API da Meta). Só serve para enviar alertas."""
+    return config.keys_dir() / "whatsapp.json"
+
+
 def protect(path):
     """Deixa o ficheiro (e a pasta) só para o utilizador atual. Devolve False (e avisa) se não conseguiu."""
     path = Path(path)
@@ -62,6 +67,18 @@ def write_private(path, text):
 
 def save(path, key, secret):
     write_private(path, json.dumps({"key": key.strip(), "secret": secret.strip()}))
+
+
+def save_json(path, data):
+    write_private(path, json.dumps(data))
+
+
+def load_json(path):
+    try:
+        data = json.loads(Path(path).read_text())
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def load(path):

@@ -13,10 +13,13 @@ def isolated_environment(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(notify, "TELEGRAM_FILE", tmp_path / "no-telegram.json")   # não existe: sem Telegram
     monkeypatch.setattr(notify, "SENDER", lambda token, chat, text: sent.append(text) or (True, ""))
+    monkeypatch.setattr(notify, "WHATSAPP_FILE", tmp_path / "no-whatsapp.json")      # não existe: sem WhatsApp
+    monkeypatch.setattr(notify, "WA_SENDER", lambda cfg, text: sent.append("[whatsapp] " + text) or (True, ""))
     home = tmp_path / "home"
     monkeypatch.setattr(keystore, "default_path", lambda: home / ".central-de-bots" / "binance_readonly.json")
     monkeypatch.setattr(keystore, "testnet_path", lambda: home / ".central-de-bots" / "binance_testnet.json")
     monkeypatch.setattr(keystore, "telegram_path", lambda: home / ".central-de-bots" / "telegram.json")
+    monkeypatch.setattr(keystore, "whatsapp_path", lambda: home / ".central-de-bots" / "whatsapp.json")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
 
     def no_network(*args, **kwargs):

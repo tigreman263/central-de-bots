@@ -39,7 +39,7 @@ def create_app(test_config=None):
     app = Flask(__name__)
     root = Path(__file__).resolve().parent.parent
     app.config.update(DATA_DIR=str(cfgmod.data_dir()), MARKET_FETCH=None, KEY_FILE=None, READER_FACTORY=None,
-                      TESTNET_KEY_FILE=None, TELEGRAM_FILE=None, TRADER_FACTORY=None)
+                      TESTNET_KEY_FILE=None, TELEGRAM_FILE=None, WHATSAPP_FILE=None, TRADER_FACTORY=None)
     if test_config:
         app.config.update(test_config)
 
@@ -262,29 +262,127 @@ def create_app(test_config=None):
                                buckets=buckets, mkt=mkt, prices=prices, cfg=cfg,
                                capital_label=capital_label)
 
+    CFG_CATS = [("capital", "Capital e saldo"), ("risco", "Risco e lucro"), ("portefolio", "Alertas de risco da carteira"),
+                ("sugestoes", "Sugestões de moedas"), ("alertas", "Notificações"), ("ligacoes", "Ligações"),
+                ("sistema", "Sistema")]
+    FORM_CATS = ["capital", "risco", "portefolio", "sugestoes"]
+    ALERT_EXAMPLES = [
+        ("Bot em pausa (queda forte, limite diário ou capital em queda)", "atenção", "Ver o motivo no bot. Ele já cancelou as compras."),
+        ("Compras suspensas (várias compras seguidas sem venda)", "atenção", "Sinal de queda contínua: esperar ou parar."),
+        ("Bot parado (stop-loss, pedido teu ou PARAR TUDO)", "alto", "Confirmar o que ficou por fechar."),
+        ("Reset da Testnet", "alto", "Criar um bot novo (a janela de 7 dias reinicia)."),
+        ("Ordem recusada pela guarda ou pela exchange", "alto", "Ver o motivo; o bot ficou em pausa."),
+        ("Erro interno ou chaves recusadas", "alto", "Ver os registos e as chaves em Ligações."),
+        ("O corredor deixou de dar sinal", "alto", "Reiniciar o corredor (no Pi: systemctl restart bots-corredor)."),
+    ]
+
+    def alert_context():
+        tg = keystore.load(telegram_file())
+        wa = keystore.load_json(whatsapp_file())
+        return {"prefs": notify.prefs(conn()), "telegram": bool(tg), "telegram_masked": keystore.masked(tg[0]) if tg else "",
+                "whatsapp": bool(wa), "whatsapp_cfg": wa or {}, "providers": notify.PROVIDERS,
+                "min_choices": notify.MIN_CHOICES, "examples": ALERT_EXAMPLES}
+
+    def system_context():
+        rows = botstore.all_bots(conn())
+        try:
+            db_mb = os.path.getsize(app.config["DB_PATH"]) / 1_048_576
+        except OSError:
+            db_mb = 0.0
+        return {"real_key": bool(keystore.load(key_file())), "testnet_key": bool(keystore.load(testnet_file())),
+                "runner": runner_state(), "emergency": db.get(conn(), "emergency_stop") == "1", "bots": len(rows),
+                "bots_active": sum(1 for r in rows if r["status"] != "stopped"), "data_dir": str(data_dir),
+                "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb}
+
+    def config_page(cfg, cat):
+        cat = cat if cat in dict(CFG_CATS) else "capital"
+        return render_template("config.html", cfg=cfg, categories=EXCLUSION_CATEGORIES, risk_pairs=RISK_PAIRS, cat=cat,
+                               cfg_cats=CFG_CATS, form_cats=FORM_CATS, al=alert_context(), sysinfo=system_context())
+
     @app.route("/configuracao", methods=["GET", "POST"])
     def config():
         cfg = db.get_all(conn())
         if request.method == "POST":
+            cat = request.form.get("cat", "capital")
             new, errors = parse_config(request.form)
             if errors:
                 for e in errors:
                     flash(e, "error")
-                return render_template("config.html", cfg=_merge(cfg, request.form),
-                                       categories=EXCLUSION_CATEGORIES, risk_pairs=RISK_PAIRS)
+                return config_page(_merge(cfg, request.form), cat)
             if request.form.get("step") == "save":
                 db.set_many(conn(), new)
                 changes = describe_changes(cfg, new)
                 db.log(conn(), "Configuração guardada",
                        "; ".join(f"{a}: {b} → {c}" for a, b, c in changes))
                 flash("Configuração guardada.", "ok")
-                return redirect(url_for("config"))
+                return redirect(url_for("config", cat=cat))
             changes = describe_changes(cfg, new)
             if not changes:
                 flash("Não mudaste nada.", "ok")
-                return redirect(url_for("config"))
-            return render_template("config_confirm.html", changes=changes, new=new)
-        return render_template("config.html", cfg=cfg, categories=EXCLUSION_CATEGORIES, risk_pairs=RISK_PAIRS)
+                return redirect(url_for("config", cat=cat))
+            return render_template("config_confirm.html", changes=changes, new=new, cat=cat)
+        return config_page(cfg, request.args.get("cat", "capital"))
+
+    @app.post("/configuracao/alertas")
+    def alert_settings():
+        action = request.form.get("action", "")
+        text = "Malha: mensagem de teste. Se a lês, os alertas estão a funcionar."
+        if action == "save_prefs":
+            values = {}
+            for ch in ("telegram", "whatsapp"):
+                values[f"alert_{ch}_on"] = "1" if request.form.get(f"alert_{ch}_on") == "1" else "0"
+                minimum = request.form.get(f"alert_{ch}_min", "")
+                values[f"alert_{ch}_min"] = minimum if minimum in ("atenção", "alto") else notify.DEFAULT_PREFS[f"alert_{ch}_min"]
+            db.set_many(conn(), values)
+            db.log(conn(), "Preferências de alertas guardadas", ", ".join(f"{k}={v}" for k, v in values.items()))
+            flash("Preferências de alertas guardadas.", "ok")
+        elif action == "delete_telegram":
+            keystore.delete(telegram_file())
+            db.log(conn(), "Telegram removido")
+            flash("Telegram removido.", "ok")
+        elif action in ("save_telegram", "test_telegram"):
+            creds = keystore.load(telegram_file())
+            if action == "save_telegram":
+                token, chat = request.form.get("token", "").strip(), request.form.get("chat_id", "").strip()
+            else:
+                token, chat = creds if creds else ("", "")
+            if not token or not chat:
+                flash("Preenche o token do bot e o id da conversa.", "error")
+            else:
+                ok, err = (notify.SENDER or notify.send)(token, chat, text)
+                if not ok:
+                    flash(f"Não consegui enviar: {err}. Confirma o token e o id da conversa.", "error")
+                else:
+                    if action == "save_telegram":
+                        keystore.save(telegram_file(), token, chat)
+                        db.log(conn(), "Telegram configurado (só envio)")
+                    flash("Mensagem de teste enviada. O Telegram só envia alertas, não recebe comandos.", "ok")
+        elif action == "delete_whatsapp":
+            keystore.delete(whatsapp_file())
+            db.log(conn(), "WhatsApp removido")
+            flash("WhatsApp removido.", "ok")
+        elif action in ("save_whatsapp", "save_whatsapp_notest", "test_whatsapp"):
+            if action == "test_whatsapp":
+                wa = keystore.load_json(whatsapp_file())
+                errors = [] if wa else ["Ainda não há WhatsApp configurado."]
+            else:
+                wa, errors = notify.validate_whatsapp(request.form)
+            if errors:
+                for e in errors:
+                    flash(e, "error")
+            else:
+                ok, err = (True, "") if action == "save_whatsapp_notest" else (notify.WA_SENDER or notify.whatsapp_send)(wa, text)
+                if not ok:
+                    flash(f"Não consegui enviar: {err}.", "error")
+                else:
+                    if action != "test_whatsapp":
+                        keystore.save_json(whatsapp_file(), wa)
+                        db.log(conn(), "WhatsApp configurado (só envio)", notify.PROVIDERS[wa["provider"]])
+                    flash("Mensagem de teste enviada. O WhatsApp só envia alertas, não recebe comandos."
+                          if action != "save_whatsapp_notest" else "WhatsApp guardado sem teste.", "ok")
+        else:
+            abort(400)
+        return redirect(url_for("config", cat="alertas"))
 
     def _merge(cfg, form):
         merged = dict(cfg)
@@ -545,6 +643,9 @@ def create_app(test_config=None):
     def telegram_file():
         return app.config["TELEGRAM_FILE"] or notify.TELEGRAM_FILE or keystore.telegram_path()
 
+    def whatsapp_file():
+        return app.config["WHATSAPP_FILE"] or notify.WHATSAPP_FILE or keystore.whatsapp_path()
+
     def make_trader(key=None, secret=None):
         if key is None:
             creds = keystore.load(testnet_file())
@@ -573,32 +674,9 @@ def create_app(test_config=None):
                         keystore.save(testnet_file(), key, secret)
                         db.log(conn(), "Chaves da Testnet guardadas", keystore.masked(key))
                         flash("Ligação bem-sucedida. Chaves da Testnet guardadas (não servem na conta real).", "ok")
-            elif action == "delete_telegram":
-                keystore.delete(telegram_file())
-                db.log(conn(), "Telegram removido")
-                flash("Telegram removido.", "ok")
-            elif action in ("save_telegram", "test_telegram"):
-                creds = keystore.load(telegram_file())
-                if action == "save_telegram":
-                    token, chat = request.form.get("token", "").strip(), request.form.get("chat_id", "").strip()
-                else:
-                    token, chat = creds if creds else ("", "")
-                if not token or not chat:
-                    flash("Preenche o token do bot e o id da conversa.", "error")
-                else:
-                    ok, err = (notify.SENDER or notify.send)(token, chat, "Malha: mensagem de teste. "
-                                                             "Os alertas dos bots chegam aqui.")
-                    if not ok:
-                        flash(f"Não consegui enviar: {err}. Confirma o token e o id da conversa.", "error")
-                    else:
-                        if action == "save_telegram":
-                            keystore.save(telegram_file(), token, chat)
-                            db.log(conn(), "Telegram configurado (só envio)")
-                        flash("Mensagem de teste enviada. O Telegram só envia alertas, não recebe comandos.", "ok")
             return redirect(url_for("bot_links"))
-        tn, tg = keystore.load(testnet_file()), keystore.load(telegram_file())
-        return render_template("bots_links.html", testnet=keystore.masked(tn[0]) if tn else None,
-                               telegram=bool(tg))
+        tn = keystore.load(testnet_file())
+        return render_template("bots_links.html", testnet=keystore.masked(tn[0]) if tn else None)
 
     def bot_params():
         cfg = db.get_all(conn())
@@ -648,13 +726,25 @@ def create_app(test_config=None):
             store.update(t=time.time(), data=make_trader().trading_symbols())
         return pairs.for_testnet(cache["data"], store["data"])
 
+    BOT_TABS = {"real": None, "simulacao": "sim", "testnet": "testnet"}
+
     @app.get("/bots")
     def bots():
+        """Bots em três separadores: real (ainda não existe), simulação e Testnet."""
         rows = []
         for r in botstore.all_bots(conn()):
             eng = botstore.load_engine(conn(), r["id"])
             rows.append({"row": r, "stats": botstore.stats(eng, now_ms()), "eng": eng})
-        return render_template("bots.html", rows=rows, runner=runner_state())
+        counts = {"real": 0, "simulacao": sum(1 for it in rows if it["row"]["mode"] == "sim"),
+                  "testnet": sum(1 for it in rows if it["row"]["mode"] == "testnet")}
+        aba = request.args.get("aba")
+        if aba not in BOT_TABS:
+            aba = "testnet" if counts["testnet"] else "simulacao"
+        shown = [it for it in rows if it["row"]["mode"] == BOT_TABS[aba]]
+        tabs = [("real", "Real", counts["real"]), ("simulacao", "Simulação", counts["simulacao"]),
+                ("testnet", "Testnet", counts["testnet"])]
+        return render_template("bots.html", rows=shown, runner=runner_state(), tabs=tabs, aba=aba,
+                               n_deletable=sum(1 for it in shown if botstore.can_delete(conn(), it["row"])))
 
     @app.route("/bots/novo", methods=["GET", "POST"])
     def bot_new():
@@ -716,6 +806,41 @@ def create_app(test_config=None):
                                stats=botstore.stats(eng, now_ms(), curve), events=botstore.events(conn(), bot_id),
                                fills=botstore.fills(conn(), bot_id), runner=runner_state(),
                                pchart=price_chart, window=window, windows=list(chart.WINDOWS), equity=equity)
+
+    @app.route("/bots/<int:bot_id>/apagar", methods=["GET", "POST"])
+    def bot_delete(bot_id):
+        row = botstore.get(conn(), bot_id)
+        if row is None:
+            abort(404)
+        if not botstore.can_delete(conn(), row):
+            flash("Só se apaga um bot parado e sem ordens por fechar. Pára-o primeiro.", "error")
+            return redirect(url_for("bot_detail", bot_id=bot_id))
+        eng = botstore.load_engine(conn(), bot_id)
+        if request.method == "POST":
+            botstore.delete(conn(), bot_id)
+            db.log(conn(), "Bot apagado", f"Bot {bot_id} {row['pair']} ({row['mode']})")
+            flash(f"Bot {row['pair']} apagado. Os dados dele deixaram de estar guardados.", "ok")
+            return redirect(url_for("bots", aba="testnet" if row["mode"] == "testnet" else "simulacao"))
+        return render_template("bot_delete_confirm.html", bots=[(row, eng)], aba="", back=url_for("bot_detail", bot_id=bot_id))
+
+    @app.route("/bots/apagar-parados", methods=["GET", "POST"])
+    def bots_delete_stopped():
+        aba = request.values.get("aba", "")
+        mode = BOT_TABS.get(aba)                     # só os bots deste separador (sem separador: todos os parados)
+        rows = [r for r in botstore.deletable(conn()) if mode is None or r["mode"] == mode]
+        back = url_for("bots", aba=aba) if aba in BOT_TABS else url_for("bots")
+        if request.method == "POST":
+            for r in rows:
+                botstore.delete(conn(), r["id"])
+            db.log(conn(), "Bots parados apagados", ", ".join(f"{r['id']} {r['pair']}" for r in rows) or "nenhum")
+            flash(f"{len(rows)} bot{'' if len(rows) == 1 else 's'} parado{'' if len(rows) == 1 else 's'} apagado"
+                  f"{'' if len(rows) == 1 else 's'}.", "ok")
+            return redirect(back)
+        if not rows:
+            flash("Não há bots parados para apagar.", "ok")
+            return redirect(back)
+        return render_template("bot_delete_confirm.html", bots=[(r, botstore.load_engine(conn(), r["id"])) for r in rows],
+                               aba=aba, back=back)
 
     @app.get("/bots/<int:bot_id>/parar")
     def bot_stop_confirm(bot_id):

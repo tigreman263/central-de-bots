@@ -154,3 +154,12 @@ input[type=checkbox]{width:24px;height:24px;accent-color:var(--accent)}
 .skip:focus{top:8px}
 header.top .stop{margin-left:24px}
 .btn.big-stop{min-height:52px;padding:0 28px;font-size:17px;background:var(--stop);color:var(--stop-ink);border-color:var(--stop)}
+
+/* categorias da configuração */
+.cfgnav{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px;margin-bottom:8px}
+.cfgnav a{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;color:var(--ink);text-decoration:none;font-weight:600;background:var(--surface)}
+.cfgnav a[aria-current="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+fieldset[data-provider]{border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+fieldset[data-provider] legend{font-weight:700;padding:0 6px}
+select{min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:0 10px;font:inherit}
+code{background:var(--accent-soft);border-radius:6px;padding:1px 6px}

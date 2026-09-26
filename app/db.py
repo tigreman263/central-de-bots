@@ -13,6 +13,11 @@ DEFAULTS = {
     "profit_to_reserve": "50",
     "pause_drawdown": "20",
     "exclusions": "memecoins,leveraged",
+    # alertas: por canal, ligado ou não e a partir de que gravidade envia (ver notify.py)
+    "alert_telegram_on": "1",
+    "alert_telegram_min": "atenção",
+    "alert_whatsapp_on": "1",
+    "alert_whatsapp_min": "alto",
 }
 
 DEFAULTS.update({k: f"{v:.10g}" for k, v in RISK_DEFAULTS.items()})

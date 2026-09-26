@@ -41,6 +41,7 @@
   {% if bot.status == 'running' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="pause"><button class="btn">Pausar</button></form>{% endif %}
   {% if bot.status == 'paused' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="resume"><button class="btn pri">Retomar</button></form>{% endif %}
   {% if bot.status in ('running', 'paused') %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="stop"><button class="btn danger">Parar bot…</button></form>{% endif %}
+  {% if bot.status == 'stopped' %}<a class="btn danger" href="{{ url_for('bot_delete', bot_id=bot.id) }}">Apagar bot…</a>{% endif %}
   <a class="btn" href="{{ url_for('bots') }}">Voltar</a>
 </div>
 

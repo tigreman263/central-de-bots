@@ -17,95 +17,270 @@
 </details>
 {% endmacro %}
 
+{% macro state(ok, yes, no) %}<span class="pill {{ 'gain' if ok else 'idle' }}">{{ ('● ' ~ yes) if ok else ('○ ' ~ no) }}</span>{% endmacro %}
+
 {% block body %}
 <h2>Configuração</h2>
-<p class="sub">As alterações só se aplicam depois de confirmares o resumo "antes → depois".</p>
+<p class="sub">Escolhe uma categoria. As alterações de capital, risco e limiares só se aplicam depois de confirmares o resumo "antes → depois". Os alertas e as ligações guardam-se logo, com um teste.</p>
 
-<div class="card tips">
-  <h3>Boas práticas</h3>
-  <ol>{% for t in rec.general %}<li>{{ t }}</li>{% endfor %}</ol>
-  <p class="tag">{{ rec.disclaimer }}</p>
-</div>
+<nav class="cfgnav" aria-label="Categorias da configuração">
+  {% for code, label in cfg_cats %}<a href="{{ url_for('config', cat=code) }}" data-cat-link="{{ code }}"{% if code == cat %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
 
-<form method="post" class="stack" id="cfgform">
+<form method="post" class="stack" id="cfgform"{% if cat not in form_cats %} hidden{% endif %}>
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="step" value="preview">
+  <input type="hidden" name="cat" id="cfgcat" value="{{ cat if cat in form_cats else 'capital' }}">
 
-  <div class="card stack">
-    <h3>Capital e divisão do saldo</h3>
-    <div class="field"><label for="capital_eur">Capital simulado (EUR)</label>
-      <input id="capital_eur" name="capital_eur" inputmode="decimal" value="{{ cfg.capital_eur }}" required>
-      <small>O valor fictício com que os bots simulam.</small>
-      {{ recs('capital') }}</div>
-    <div class="field"><label for="split_reserve">Reserva (%)</label>
-      <input id="split_reserve" name="split_reserve" inputmode="decimal" value="{{ cfg.split_reserve }}" required>
-      <small>Fica intocável. Nenhum bot lhe mexe.</small></div>
-    <div class="field"><label for="split_trading">Trading (%)</label>
-      <input id="split_trading" name="split_trading" inputmode="decimal" value="{{ cfg.split_trading }}" required>
-      <small>O único capital que os bots podem usar.</small></div>
-    <div class="field"><label for="split_cash">Caixa (%)</label>
-      <input id="split_cash" name="split_cash" inputmode="decimal" value="{{ cfg.split_cash }}" required>
-      <small>Margem de segurança em stablecoins. As três percentagens têm de somar 100%.</small>
-      {{ recs('split') }}</div>
-  </div>
+  <section data-cat="capital"{% if cat != 'capital' %} hidden{% endif %}>
+    <div class="card tips">
+      <h3>Boas práticas</h3>
+      <ol>{% for t in rec.general %}<li>{{ t }}</li>{% endfor %}</ol>
+      <p class="tag">{{ rec.disclaimer }}</p>
+    </div>
+    <div class="card stack">
+      <h3>Capital e divisão do saldo</h3>
+      <div class="field"><label for="capital_eur">Capital simulado (EUR)</label>
+        <input id="capital_eur" name="capital_eur" inputmode="decimal" value="{{ cfg.capital_eur }}" required>
+        <small>O valor fictício com que os bots simulam.</small>
+        {{ recs('capital') }}</div>
+      <div class="field"><label for="split_reserve">Reserva (%)</label>
+        <input id="split_reserve" name="split_reserve" inputmode="decimal" value="{{ cfg.split_reserve }}" required>
+        <small>Fica intocável. Nenhum bot lhe mexe.</small></div>
+      <div class="field"><label for="split_trading">Trading (%)</label>
+        <input id="split_trading" name="split_trading" inputmode="decimal" value="{{ cfg.split_trading }}" required>
+        <small>O único capital que os bots podem usar.</small></div>
+      <div class="field"><label for="split_cash">Caixa (%)</label>
+        <input id="split_cash" name="split_cash" inputmode="decimal" value="{{ cfg.split_cash }}" required>
+        <small>Margem de segurança em stablecoins. As três percentagens têm de somar 100%.</small>
+        {{ recs('split') }}</div>
+    </div>
+  </section>
 
-  <div class="card stack">
-    <h3>Risco e lucro</h3>
-    <div class="field"><label for="max_loss_trade">Perda máxima por operação (%)</label>
-      <input id="max_loss_trade" name="max_loss_trade" inputmode="decimal" value="{{ cfg.max_loss_trade }}" required>
-      <small>Entre 0,5 e 5. Ponto de partida: 2.</small>
-      {{ recs('max_loss_trade') }}</div>
-    <div class="field"><label for="profit_to_reserve">Lucro que vai para a reserva (%)</label>
-      <input id="profit_to_reserve" name="profit_to_reserve" inputmode="decimal" value="{{ cfg.profit_to_reserve }}" required>
-      <small>Aplica-se ao lucro realizado. Ponto de partida: 50.</small>
-      {{ recs('profit_to_reserve') }}</div>
-    <div class="field"><label for="pause_drawdown">Pausar se o trading cair (%)</label>
-      <input id="pause_drawdown" name="pause_drawdown" inputmode="decimal" value="{{ cfg.pause_drawdown }}" required>
-      <small>Entre 5 e 50. Ponto de partida: 20.</small>
-      {{ recs('pause_drawdown') }}</div>
-  </div>
+  <section data-cat="risco"{% if cat != 'risco' %} hidden{% endif %}>
+    <div class="card stack">
+      <h3>Risco e lucro</h3>
+      <div class="field"><label for="max_loss_trade">Perda máxima por operação (%)</label>
+        <input id="max_loss_trade" name="max_loss_trade" inputmode="decimal" value="{{ cfg.max_loss_trade }}" required>
+        <small>Entre 0,5 e 5. Ponto de partida: 2. É a perda estimada de um degrau até ao stop, não um teto para o bot inteiro.</small>
+        {{ recs('max_loss_trade') }}</div>
+      <div class="field"><label for="profit_to_reserve">Lucro que vai para a reserva (%)</label>
+        <input id="profit_to_reserve" name="profit_to_reserve" inputmode="decimal" value="{{ cfg.profit_to_reserve }}" required>
+        <small>Aplica-se ao lucro realizado. Ponto de partida: 50.</small>
+        {{ recs('profit_to_reserve') }}</div>
+      <div class="field"><label for="pause_drawdown">Pausar se o trading cair (%)</label>
+        <input id="pause_drawdown" name="pause_drawdown" inputmode="decimal" value="{{ cfg.pause_drawdown }}" required>
+        <small>Entre 5 e 50. Ponto de partida: 20.</small>
+        {{ recs('pause_drawdown') }}</div>
+    </div>
+  </section>
 
-  <div class="card stack">
-    <h3>Limiares de risco do portefólio</h3>
-    <p class="tag">O painel avisa quando uma moeda passa estes limites. Cada risco tem dois níveis: <b>atenção</b> (vê isto) e <b>alto</b> (mais grave). Pontos de partida a validar: ajusta depois de veres os primeiros alertas reais. Nada aqui compra ou vende.</p>
-    {% for it in rec.risk_items %}
-      <div class="field riskitem">
-        <label>{{ it.title }} <span class="tag">({{ it.unit }})</span></label>
-        <small>{{ it.what }}</small>
-        <div class="row">
-          <div class="field" style="flex:1;min-width:150px"><label for="{{ it.attn_key }}" class="tag">{{ it.attn_label }}</label>
-            <input id="{{ it.attn_key }}" name="{{ it.attn_key }}" inputmode="decimal" value="{{ cfg[it.attn_key] }}" required></div>
-          <div class="field" style="flex:1;min-width:150px"><label for="{{ it.high_key }}" class="tag">{{ it.high_label }}</label>
-            <input id="{{ it.high_key }}" name="{{ it.high_key }}" inputmode="decimal" value="{{ cfg[it.high_key] }}" required></div>
+  <section data-cat="portefolio"{% if cat != 'portefolio' %} hidden{% endif %}>
+    <div class="card stack">
+      <h3>Limiares de risco da carteira</h3>
+      <p class="tag">O painel avisa quando uma moeda passa estes limites. Cada risco tem dois níveis: <b>atenção</b> (vê isto) e <b>alto</b> (mais grave). Pontos de partida a validar: ajusta depois de veres os primeiros alertas reais. Nada aqui compra ou vende.</p>
+      {% for it in rec.risk_items %}
+        <div class="field riskitem">
+          <label>{{ it.title }} <span class="tag">({{ it.unit }})</span></label>
+          <small>{{ it.what }}</small>
+          <div class="row">
+            <div class="field" style="flex:1;min-width:150px"><label for="{{ it.attn_key }}" class="tag">{{ it.attn_label }}</label>
+              <input id="{{ it.attn_key }}" name="{{ it.attn_key }}" inputmode="decimal" value="{{ cfg[it.attn_key] }}" required></div>
+            <div class="field" style="flex:1;min-width:150px"><label for="{{ it.high_key }}" class="tag">{{ it.high_label }}</label>
+              <input id="{{ it.high_key }}" name="{{ it.high_key }}" inputmode="decimal" value="{{ cfg[it.high_key] }}" required></div>
+          </div>
+          <details class="recs">
+            <summary>Recomendações</summary>
+            <ul class="profiles">
+              {% for name, text, a, h in it.profiles %}
+                <li><span><b>{{ name }}:</b> {{ text }}.</span>
+                  <button type="button" class="btn small" data-apply='{{ {it.attn_key: a, it.high_key: h} | tojson }}'>Aplicar</button></li>
+              {% endfor %}
+            </ul>
+            <p class="tag">Erro comum: {{ it.mistake }}</p>
+            <p class="tag">Na tua situação: {{ it.small }}</p>
+          </details>
         </div>
-        <details class="recs">
-          <summary>Recomendações</summary>
-          <ul class="profiles">
-            {% for name, text, a, h in it.profiles %}
-              <li><span><b>{{ name }}:</b> {{ text }}.</span>
-                <button type="button" class="btn small" data-apply='{{ {it.attn_key: a, it.high_key: h} | tojson }}'>Aplicar</button></li>
-            {% endfor %}
-          </ul>
-          <p class="tag">Erro comum: {{ it.mistake }}</p>
-          <p class="tag">Na tua situação: {{ it.small }}</p>
-        </details>
-      </div>
-    {% endfor %}
-  </div>
+      {% endfor %}
+    </div>
+  </section>
 
-  <div class="card">
-    <h3>Categorias a evitar nas sugestões</h3>
-    {% for code, label in categories.items() %}
-      <label class="switch"><span>{{ label }}</span>
-        <input type="checkbox" name="exclusions" value="{{ code }}" {% if code in cfg.exclusions.split(',') %}checked{% endif %}></label>
-    {% endfor %}
-    {{ recs('exclusions') }}
-  </div>
+  <section data-cat="sugestoes"{% if cat != 'sugestoes' %} hidden{% endif %}>
+    <div class="card">
+      <h3>Categorias a evitar nas sugestões</h3>
+      <p class="tag">Ao criar um bot, o painel sugere pares. Estas categorias nunca aparecem nas sugestões.</p>
+      {% for code, label in categories.items() %}
+        <label class="switch"><span>{{ label }}</span>
+          <input type="checkbox" name="exclusions" value="{{ code }}" {% if code in cfg.exclusions.split(',') %}checked{% endif %}></label>
+      {% endfor %}
+      {{ recs('exclusions') }}
+    </div>
+  </section>
 
   <div class="row"><button class="btn pri">Rever alterações</button></div>
 </form>
 
+<section data-cat="alertas"{% if cat != 'alertas' %} hidden{% endif %}>
+  <div class="card">
+    <h3>Como funcionam os alertas</h3>
+    <p>A Malha avisa-te quando alguma coisa exige atenção. Os avisos aparecem <b>sempre</b> no painel (em Alertas). Se quiseres, também os recebes no <b>Telegram</b> e/ou no <b>WhatsApp</b>, sem teres o painel aberto.</p>
+    <p class="tag">Os canais só <b>enviam</b> mensagens: não recebem comandos, por isso ninguém consegue controlar os bots por lá. As mensagens dizem o bot, o par e o motivo (por exemplo "stop-loss"), nunca valores da carteira nem chaves.</p>
+    <div class="tablewrap"><table class="coins"><thead><tr><th>O que aconteceu</th><th>Gravidade</th><th>O que fazer</th></tr></thead><tbody>
+      {% for what, sev, todo in al.examples %}
+      <tr><td data-label="O que aconteceu">{{ what }}</td><td data-label="Gravidade"><span class="pill {{ 'loss' if sev == 'alto' else 'warn' }}">{{ sev }}</span></td><td data-label="O que fazer">{{ todo }}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+    <p class="tag"><b>Atenção</b>: vê quando puderes, o bot já se protegeu sozinho. <b>Alto</b>: exige que faças alguma coisa (ou pelo menos que percebas o que se passou).</p>
+  </div>
+
+  <form method="post" action="{{ url_for('alert_settings') }}" class="card stack">
+    <h3>O que enviar e para onde</h3>
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save_prefs">
+    <div class="field"><label class="switch"><span><b>Telegram</b> {{ state(al.telegram, 'configurado', 'por configurar') }}</span>
+      <input type="checkbox" name="alert_telegram_on" value="1"{% if al.prefs.alert_telegram_on == '1' %} checked{% endif %}></label>
+      <label for="alert_telegram_min">Enviar por Telegram</label>
+      <select id="alert_telegram_min" name="alert_telegram_min">{% for v, l in al.min_choices %}<option value="{{ v }}"{% if al.prefs.alert_telegram_min == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="field"><label class="switch"><span><b>WhatsApp</b> {{ state(al.whatsapp, 'configurado', 'por configurar') }}</span>
+      <input type="checkbox" name="alert_whatsapp_on" value="1"{% if al.prefs.alert_whatsapp_on == '1' %} checked{% endif %}></label>
+      <label for="alert_whatsapp_min">Enviar por WhatsApp</label>
+      <select id="alert_whatsapp_min" name="alert_whatsapp_min">{% for v, l in al.min_choices %}<option value="{{ v }}"{% if al.prefs.alert_whatsapp_min == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <small>Sugestão: WhatsApp só para "alto", porque é o canal que mais te interrompe.</small></div>
+    <div class="row"><button class="btn pri">Guardar preferências</button></div>
+  </form>
+
+  <div class="card stack">
+    <h3>Telegram</h3>
+    <p class="tag">Gratuito e o mais simples de configurar. Precisas do Telegram instalado no telemóvel.</p>
+    <ol>
+      <li>No Telegram, procura <b>@BotFather</b>, escreve <code>/newbot</code> e segue as perguntas. No fim ele dá-te um <b>token</b> (uma linha comprida com um <code>:</code> no meio).</li>
+      <li>Abre a conversa com o teu bot novo e envia-lhe qualquer mensagem (por exemplo "olá"). Sem isto ele não te pode escrever.</li>
+      <li>Descobre o teu <b>id da conversa</b>: procura <b>@userinfobot</b> e envia-lhe uma mensagem; ele responde com o teu número (Id).</li>
+      <li>Cola os dois abaixo. Enviamos uma mensagem de teste antes de guardar.</li>
+    </ol>
+    {% if al.telegram %}
+      <p>Ligado ao bot com token a terminar em <b class="num">{{ al.telegram_masked }}</b>.</p>
+      <div class="row">
+        <form method="post" action="{{ url_for('alert_settings') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="test_telegram"><button class="btn pri">Enviar mensagem de teste</button></form>
+        <form method="post" action="{{ url_for('alert_settings') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete_telegram"><button class="btn danger">Remover</button></form>
+      </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('alert_settings') }}" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save_telegram">
+      <div class="field"><label for="token">Token do bot</label><input id="token" name="token" type="password" autocomplete="off" required></div>
+      <div class="field"><label for="chat_id">Id da conversa</label><input id="chat_id" name="chat_id" autocomplete="off" required></div>
+      <div class="row"><button class="btn pri">Testar e guardar</button></div>
+      <p class="tag">O token fica num ficheiro protegido fora da base de dados e do git. Quem o tivesse poderia enviar mensagens como o teu bot, por isso não o partilhes.</p>
+    </form>
+  </div>
+
+  <div class="card stack">
+    <h3>WhatsApp</h3>
+    <p class="tag">O WhatsApp não tem uma ligação oficial simples para uso pessoal. Há dois caminhos. Escolhe um:</p>
+    <div class="cards">
+      <div class="card"><b>CallMeBot</b> <span class="pill gain">o mais simples</span>
+        <p class="tag">Serviço gratuito de terceiros para uso pessoal. Recebes as mensagens no teu próprio WhatsApp. Como passa por eles, o CallMeBot vê o teu número e o texto dos alertas (nunca chaves nem valores da carteira). Pode deixar de existir.</p></div>
+      <div class="card"><b>WhatsApp Cloud API (Meta)</b> <span class="pill warn">oficial, mais trabalhoso</span>
+        <p class="tag">Serviço oficial. Exige conta de programador e uma app na Meta. Fora da janela de 24 h após uma resposta tua, só aceita mensagens a partir de um modelo aprovado. Mais estável, mas só compensa se já usas a plataforma Business.</p></div>
+    </div>
+
+    {% if al.whatsapp %}
+      <p>Ligado por <b>{{ al.providers.get(al.whatsapp_cfg.provider, al.whatsapp_cfg.provider) }}</b> ao número <b class="num">+…{{ al.whatsapp_cfg.phone[-3:] }}</b>.</p>
+      <div class="row">
+        <form method="post" action="{{ url_for('alert_settings') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="test_whatsapp"><button class="btn pri">Enviar mensagem de teste</button></form>
+        <form method="post" action="{{ url_for('alert_settings') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete_whatsapp"><button class="btn danger">Remover</button></form>
+      </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('alert_settings') }}" class="stack" id="waform">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save_whatsapp">
+      <div class="field"><label for="provider">Serviço</label>
+        <select id="provider" name="provider">{% for code, label in al.providers.items() %}<option value="{{ code }}"{% if (al.whatsapp_cfg.provider or 'callmebot') == code %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="phone">O teu número de WhatsApp</label>
+        <input id="phone" name="phone" inputmode="tel" autocomplete="off" placeholder="+351 912 345 678" required>
+        <small>Formato internacional, com o indicativo do país (Portugal: +351).</small></div>
+
+      <fieldset data-provider="callmebot" class="stack">
+        <legend>Passos do CallMeBot</legend>
+        <ol>
+          <li>Abre <b>callmebot.com</b> e procura a página "Free API WhatsApp Messages". Lá está o número do CallMeBot (muda de vez em quando, por isso não o escrevemos aqui).</li>
+          <li>Guarda esse número nos contactos e envia-lhe, pelo WhatsApp, a frase de ativação que a página indica (uma frase do género "I allow callmebot to send me messages").</li>
+          <li>Passados alguns minutos ele responde-te com uma <b>chave (apikey)</b>. Cola-a abaixo.</li>
+        </ol>
+        <div class="field"><label for="apikey">Chave (apikey) do CallMeBot</label><input id="apikey" name="apikey" type="password" autocomplete="off"></div>
+      </fieldset>
+
+      <fieldset data-provider="cloud" class="stack">
+        <legend>Passos da Cloud API da Meta</legend>
+        <ol>
+          <li>Em <b>developers.facebook.com</b> cria uma app do tipo Business e junta o produto <b>WhatsApp</b>.</li>
+          <li>Em "API Setup" copia o <b>Phone number ID</b> e o <b>token de acesso</b>. O token de teste dura 24 h; para uso contínuo cria um token permanente (utilizador de sistema) no Business Manager.</li>
+          <li>Junta o teu número à lista de destinatários permitidos e confirma-o com o código que recebes.</li>
+          <li>Se as mensagens só chegarem quando tu escreveste há menos de 24 h, cria e aprova um <b>modelo</b> (template) com uma única variável no corpo e escreve o nome dele abaixo.</li>
+        </ol>
+        <div class="field"><label for="phone_number_id">Phone number ID</label><input id="phone_number_id" name="phone_number_id" inputmode="numeric" autocomplete="off"></div>
+        <div class="field"><label for="wa_token">Token de acesso</label><input id="wa_token" name="token" type="password" autocomplete="off"></div>
+        <div class="field"><label for="template">Nome do modelo aprovado (opcional)</label><input id="template" name="template" autocomplete="off" placeholder="alerta_malha"><small>Deixa vazio para enviar texto normal (só funciona dentro das 24 h).</small></div>
+      </fieldset>
+
+      <div class="row"><button class="btn pri">Testar e guardar</button>
+        <button class="btn" name="action" value="save_whatsapp_notest">Guardar sem testar</button></div>
+      <p class="tag">As credenciais ficam num ficheiro protegido fora da base de dados e do git. "Guardar sem testar" serve para a Cloud API quando o teste falha só por a janela de 24 h estar fechada.</p>
+    </form>
+  </div>
+</section>
+
+<section data-cat="ligacoes"{% if cat != 'ligacoes' %} hidden{% endif %}>
+  <div class="card stack">
+    <h3>Ligações</h3>
+    <p class="tag">Tudo o que a Malha usa de fora. As chaves ficam sempre em ficheiros protegidos, nunca na base de dados nem no git.</p>
+    <div class="tablewrap"><table class="coins"><thead><tr><th>Ligação</th><th>Estado</th><th>Para que serve</th><th></th></tr></thead><tbody>
+      <tr><td data-label="Ligação">Binance, chave real (só leitura)</td><td data-label="Estado">{{ state(sysinfo.real_key, 'ligada', 'sem chave') }}</td><td data-label="Para que serve">Ver a tua carteira, staking e análises. Não consegue operar.</td><td><a class="btn small" href="{{ url_for('portfolio_key') }}">Gerir</a></td></tr>
+      <tr><td data-label="Ligação">Binance Testnet (chaves de teste)</td><td data-label="Estado">{{ state(sysinfo.testnet_key, 'ligada', 'sem chaves') }}</td><td data-label="Para que serve">Bots com ordens reais numa conta fictícia.</td><td><a class="btn small" href="{{ url_for('bot_links') }}">Gerir</a></td></tr>
+      <tr><td data-label="Ligação">Telegram</td><td data-label="Estado">{{ state(al.telegram, 'configurado', 'por configurar') }}</td><td data-label="Para que serve">Alertas no telemóvel.</td><td><a class="btn small" href="{{ url_for('config', cat='alertas') }}">Gerir</a></td></tr>
+      <tr><td data-label="Ligação">WhatsApp</td><td data-label="Estado">{{ state(al.whatsapp, 'configurado', 'por configurar') }}</td><td data-label="Para que serve">Alertas no telemóvel.</td><td><a class="btn small" href="{{ url_for('config', cat='alertas') }}">Gerir</a></td></tr>
+    </tbody></table></div>
+  </div>
+</section>
+
+<section data-cat="sistema"{% if cat != 'sistema' %} hidden{% endif %}>
+  <div class="card stack">
+    <h3>Sistema</h3>
+    <div class="tablewrap"><table class="coins"><tbody>
+      <tr><td data-label="Item">Corredor dos bots</td><td data-label="Valor">{{ state(sysinfo.runner.alive, 'ativo', 'parado') }} <span class="tag">{{ sysinfo.runner.text }}</span></td></tr>
+      <tr><td data-label="Item">Modo seguro (PARAR TUDO)</td><td data-label="Valor">{{ state(not sysinfo.emergency, 'desligado', 'ATIVO') }}</td></tr>
+      <tr><td data-label="Item">Bots</td><td data-label="Valor" class="num">{{ sysinfo.bots }} ({{ sysinfo.bots_active }} ativos)</td></tr>
+      <tr><td data-label="Item">Pasta dos dados</td><td data-label="Valor" class="num">{{ sysinfo.data_dir }}</td></tr>
+      <tr><td data-label="Item">Pasta das chaves</td><td data-label="Valor" class="num">{{ sysinfo.keys_dir }}</td></tr>
+      <tr><td data-label="Item">Base de dados</td><td data-label="Valor" class="num">{{ '%.1f' % sysinfo.db_mb }} MB</td></tr>
+    </tbody></table></div>
+    <p class="tag">Dados e chaves mudam de pasta com as variáveis <code>BOTS_DATA_DIR</code> e <code>BOTS_KEYS_DIR</code> (ver README). No Raspberry Pi há uma cópia de segurança horária da base de dados.</p>
+  </div>
+</section>
+
 <script nonce="{{ csp_nonce }}">
+(function () {
+  var formCats = {{ form_cats | tojson }};
+  var form = document.getElementById('cfgform');
+  var links = document.querySelectorAll('[data-cat-link]');
+  function show(cat) {
+    document.querySelectorAll('section[data-cat]').forEach(function (s) { s.hidden = s.dataset.cat !== cat; });
+    if (form) { form.hidden = formCats.indexOf(cat) === -1; }
+    var field = document.getElementById('cfgcat');
+    if (field && formCats.indexOf(cat) !== -1) { field.value = cat; }
+    links.forEach(function (a) {
+      if (a.dataset.catLink === cat) { a.setAttribute('aria-current', 'true'); } else { a.removeAttribute('aria-current'); }
+    });
+    if (window.history && history.replaceState) { history.replaceState(null, '', '?cat=' + cat); }
+  }
+  links.forEach(function (a) {
+    a.addEventListener('click', function (ev) { ev.preventDefault(); show(a.dataset.catLink); });
+  });
+  var provider = document.getElementById('provider');
+  function syncProvider() {
+    document.querySelectorAll('fieldset[data-provider]').forEach(function (f) { f.hidden = provider && f.dataset.provider !== provider.value; });
+  }
+  if (provider) { provider.addEventListener('change', syncProvider); syncProvider(); }
+})();
 document.querySelectorAll('[data-apply]').forEach(function (btn) {
   btn.addEventListener('click', function () {
     var values = JSON.parse(btn.dataset.apply);

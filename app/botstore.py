@@ -223,3 +223,29 @@ def stats(eng, now_ms, curve=None):
         "stop_distance_pct": (close - eng.grid["stop"]) / close * 100,
         "never_below_cost": bool(eng.p.get("never_sell_below_cost")),
     }
+
+
+def can_delete(conn, row):
+    """Só se apaga um bot que já parou e não tem nada por fechar na exchange."""
+    return row["status"] == "stopped" and not has_pending(conn, row)
+
+
+def delete(conn, bot_id):
+    """Apaga o bot e todos os seus dados (ordens, execuções, eventos, capital, velas e alertas). False se não puder."""
+    row = get(conn, bot_id)
+    if row is None or not can_delete(conn, row):
+        return False
+    with conn:
+        for table in ("bot_orders", "bot_fills", "bot_events", "bot_equity", "bot_candles"):
+            conn.execute(f"DELETE FROM {table} WHERE bot_id = ?", (bot_id,))
+        conn.execute("UPDATE bots SET twin_of = NULL WHERE twin_of = ?", (bot_id,))
+        try:
+            conn.execute("DELETE FROM alerts WHERE key LIKE ?", (f"bot:{bot_id}:%",))
+        except Exception:
+            pass                                   # a tabela de alertas pode ainda não existir
+        conn.execute("DELETE FROM bots WHERE id = ?", (bot_id,))
+    return True
+
+
+def deletable(conn):
+    return [r for r in all_bots(conn) if can_delete(conn, r)]

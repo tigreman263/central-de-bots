@@ -2,15 +2,30 @@
 {% block title %}Bots · Malha{% endblock %}
 {% block body %}
 <h2>Bots</h2>
-<p class="sub">Bots de grelha em <b>simulação</b> (preços reais, dinheiro virtual) ou na <b>Testnet</b> (ordens reais numa conta fictícia). Nenhum toca na tua conta real.
-  <a href="{{ url_for('bot_links') }}">Ligações: chaves da Testnet e Telegram</a></p>
+<p class="sub">Três separadores: <b>Real</b> (dinheiro a sério, ainda não existe), <b>Simulação</b> (preços reais, dinheiro virtual) e <b>Testnet</b> (ordens reais numa conta fictícia). Nenhum toca na tua conta real.</p>
 
-{% if not runner.alive %}
-  <p class="flash error" role="alert">{{ runner.text }} Os bots só avançam com o corredor a correr (<code>python run_bots.py</code>).</p>
-{% else %}
-  <p class="tag">Corredor ativo. {{ runner.text }}</p>
+<nav class="cfgnav" aria-label="Tipo de bot">
+  {% for code, label, n in tabs %}<a href="{{ url_for('bots', aba=code) }}"{% if code == aba %} aria-current="true"{% endif %}>{{ label }} <span class="tag num">({{ n }})</span></a>{% endfor %}
+</nav>
+
+{% if aba != 'real' %}
+  {% if not runner.alive %}
+    <p class="flash error" role="alert">{{ runner.text }} Os bots só avançam com o corredor a correr (<code>python run_bots.py</code>).</p>
+  {% else %}
+    <p class="tag">Corredor ativo. {{ runner.text }}{% if aba == 'testnet' %} <a href="{{ url_for('bot_links') }}">Ligações: chaves da Testnet</a>{% endif %}</p>
+  {% endif %}
 {% endif %}
 
+{% if aba == 'real' %}
+<div class="card stack">
+  <h3>Bots com dinheiro real</h3>
+  <p><span class="pill idle">○ Ainda não disponível</span></p>
+  <p>Por decisão tua, a Malha só opera em <b>simulação</b> e na <b>Testnet</b>. A conta real da Binance está ligada apenas para <b>leitura</b> (Portefólio, Staking e análises) e nenhuma chave consegue enviar ordens.</p>
+  <p class="tag">Esta fase só chega depois de: 30 a 60 dias de resultados na Testnet com pelo menos 100 ciclos, comparação com "comprar e manter", uma chave nova com permissão de escrita mas <b>nunca de levantamentos</b> (com o IP restrito), e a tua aprovação explícita nessa altura.</p>
+  <div class="row"><a class="btn" href="{{ url_for('portfolio_page') }}">Ver a carteira real (só leitura)</a>
+    <a class="btn" href="{{ url_for('bots', aba='testnet') }}">Ir para a Testnet</a></div>
+</div>
+{% else %}
 <div class="cards">
   {% for it in rows %}
   {% set r = it.row %}{% set st = it.stats %}
@@ -26,13 +41,20 @@
       <p class="tag">lucro líquido de comissões · {{ '%+.2f' % st.net_pct }}% · {{ st.cycles }} ciclos · {{ st.open_orders }} ordens abertas</p>
     {% else %}<p class="tag">Ainda sem dados: o corredor monta a grelha no primeiro minuto.</p>{% endif %}
     <p class="tag num">Capital {{ 'na Testnet' if r.mode == 'testnet' else 'virtual' }}: {{ '%g' % r.capital_usdt }} USDT{% if r.twin_of %} · gémeo do bot {{ r.twin_of }}{% endif %}</p>
-    <a class="btn small" href="{{ url_for('bot_detail', bot_id=r.id) }}">Ver detalhe</a>
+    <div class="row"><a class="btn small" href="{{ url_for('bot_detail', bot_id=r.id) }}">Ver detalhe</a>
+      {% if r.status == 'stopped' %}<a class="btn small danger" href="{{ url_for('bot_delete', bot_id=r.id) }}">Apagar</a>{% endif %}</div>
   </div>
+  {% else %}
+  <div class="card"><p class="tag">Ainda não há bots {{ 'na Testnet' if aba == 'testnet' else 'em simulação' }}.</p></div>
   {% endfor %}
+  {% if n_deletable %}<div class="card" style="display:flex;flex-direction:column;gap:8px;justify-content:center;border-style:dashed">
+    <b>Limpar</b><span class="tag">{{ n_deletable }} bot{{ '' if n_deletable == 1 else 's' }} parado{{ '' if n_deletable == 1 else 's' }} nesta lista ocupa{{ '' if n_deletable == 1 else 'm' }} espaço e continua{{ '' if n_deletable == 1 else 'm' }} a aparecer.</span>
+    <a class="btn danger" href="{{ url_for('bots_delete_stopped', aba=aba) }}">Apagar os bots parados</a></div>{% endif %}
   <div class="card" style="display:flex;flex-direction:column;gap:8px;justify-content:center;border-style:dashed">
-    <b>Criar bot</b><span class="tag">Escolhes o modo, um par sugerido, vês a grelha e aprovas.</span>
-    <a class="btn pri" href="{{ url_for('bot_new') }}">Criar bot (simulação)</a>
-    <a class="btn" href="{{ url_for('bot_new', modo='testnet') }}">Criar bot na Testnet</a>
+    <b>Criar bot {{ 'na Testnet' if aba == 'testnet' else 'em simulação' }}</b><span class="tag">Escolhes um par sugerido, vês a grelha e aprovas.</span>
+    {% if aba == 'testnet' %}<a class="btn pri" href="{{ url_for('bot_new', modo='testnet') }}">Criar bot na Testnet</a>
+    {% else %}<a class="btn pri" href="{{ url_for('bot_new') }}">Criar bot (simulação)</a>{% endif %}
   </div>
 </div>
+{% endif %}
 {% endblock %}

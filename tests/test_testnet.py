@@ -531,6 +531,7 @@ def panel(tmp_path):
                       "MARKET_FETCH": lambda s: {"BTCUSDT": 1.0, "ETHUSDT": 1.0, "EURUSDT": 1.1},
                       "READER_FACTORY": lambda k, s: fm, "TRADER_FACTORY": lambda k, s: ex,
                       "TESTNET_KEY_FILE": str(tmp_path / "tn.json"), "TELEGRAM_FILE": str(tmp_path / "tg.json"),
+                      "WHATSAPP_FILE": str(tmp_path / "wa.json"),
                       "TESTING": True})
     c = app.test_client()
     tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/setup").get_data(as_text=True)).group(1)
@@ -558,8 +559,8 @@ def test_panel_saves_testnet_keys_only_after_a_working_test(panel):
 
 def test_panel_telegram_is_send_only_and_tested_before_saving(panel, isolated_notifications):
     c, ex, app, tmp = panel
-    r = c.post("/bots/ligacoes", data={"csrf": csrf(c), "action": "save_telegram", "token": "111:AAA",
-                                       "chat_id": "42"}, follow_redirects=True)
+    r = c.post("/configuracao/alertas", data={"csrf": csrf(c, "/configuracao?cat=alertas"), "action": "save_telegram",
+                                              "token": "111:AAA", "chat_id": "42"}, follow_redirects=True)
     assert keystore.load(tmp / "tg.json") == ("111:AAA", "42")
     assert any("mensagem de teste" in m for m in isolated_notifications)
     assert "111:AAA" not in r.get_data(as_text=True) and "não recebe comandos" in r.get_data(as_text=True)
@@ -584,8 +585,10 @@ def test_panel_creates_a_testnet_bot_with_a_simulation_twin(panel):
     assert len(rows) == 2
     real, twin = next(x for x in rows if x["mode"] == "testnet"), next(x for x in rows if x["mode"] == "sim")
     assert real["source"] == "testnet" and twin["source"] == "testnet" and twin["twin_of"] == real["id"]
-    html = c.get("/bots").get_data(as_text=True)
-    assert "TESTNET" in html and "SIMULAÇÃO" in html and "gémeo do bot" in html
+    html = c.get("/bots").get_data(as_text=True)                                   # abre no separador Testnet
+    assert 'aria-current="true">Testnet' in html and "TESTNET" in html and "gémeo do bot" not in html
+    sim = c.get("/bots?aba=simulacao").get_data(as_text=True)                      # o gémeo vive no separador Simulação
+    assert "SIMULAÇÃO" in sim and "gémeo do bot" in sim
     assert "Simulação vs Testnet" in c.get("/estatisticas").get_data(as_text=True)
 
 

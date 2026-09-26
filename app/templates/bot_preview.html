@@ -4,6 +4,7 @@
 <h2>Aprovar bot {{ chosen.pair }}</h2>
 <p class="sub">Passo 2 de 3: confirma a grelha e as proteções. Sem a tua aprovação, nada corre. {% if mode == 'testnet' %}Modo <b>Testnet</b>: as ordens são enviadas para a Testnet da Binance (dinheiro fictício).{% else %}É só simulação.{% endif %}</p>
 
+{% if note %}<p class="flash warnbar" role="status">{{ note }}</p>{% endif %}
 <div class="cards">
   <div class="card"><h3>Grelha</h3>
     <p class="num" style="margin:0">{{ g.levels }} degraus de {{ '%.6g' % g.lower }} a {{ '%.6g' % g.upper }}</p>

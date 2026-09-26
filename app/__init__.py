@@ -699,7 +699,16 @@ def create_app(test_config=None):
         return round(snap["total_usdt"] * 0.15, 2) if snap else 90.0
 
     def preview_grid(pair, capital, mode="sim"):
-        """Monta a grelha com o preço e as regras reais do par. Levanta GridRefused se a guarda recusar."""
+        """Monta a grelha com o preço e as regras reais do par. Levanta GridRefused se a guarda recusar.
+
+        Devolve (preço, regras, parâmetros, grelha, capital, nota). Na Testnet, se o saldo livre em USDT não chega para
+        o orçamento da grelha, o capital é ajustado ao que a conta tem (a nota explica) em vez de recusar.
+        """
+        note = ""
+
+        def pt(x):
+            return f"{x:,.2f}".replace(",", " ").replace(".", ",")
+
         if mode == "testnet":
             trader = make_trader()
             if not trader.has_keys:
@@ -707,17 +716,33 @@ def create_app(test_config=None):
             rules = trader.symbol_rules(pair)
             if rules.get("status") != "TRADING":
                 raise G.GridRefused(f"O par {pair} não está em negociação na Testnet.")
-            if trader.free_balance("USDT") < capital:
-                raise G.GridRefused("A conta da Testnet não tem USDT suficiente para este capital.")
             price = float(trader.ticker24(pair)["lastPrice"])
-        else:
-            reader = make_reader("", "")
-            rules = reader.symbol_rules(pair)
-            if rules.get("status") != "TRADING":
-                raise G.GridRefused(f"O par {pair} não está em negociação normal na Binance.")
-            price = float(reader.ticker24(pair)["lastPrice"])
+            params = bot_params()
+            free = trader.free_balance("USDT")
+            grid = G.build_grid(price, capital, rules, params)
+            if free < grid["budget"]:                       # o orçamento da grelha (sem a reserva de caixa) não cabe
+                reserve = 1 - {**G.DEFAULTS, **params}["cash_reserve_pct"] / 100
+                adjusted = int(free * 0.97 / reserve * 100) / 100     # 3% de folga para comissões e mexidas de preço
+                try:
+                    grid = G.build_grid(price, adjusted, rules, params)
+                except G.GridRefused:
+                    raise G.GridRefused(
+                        f"A conta da Testnet só tem {pt(free)} USDT livres, pouco para uma grelha segura neste par. "
+                        "Pára ou apaga outros bots da Testnet que estejam a usar o saldo, ou repõe o saldo da conta "
+                        "no site da Testnet da Binance.") from None
+                note = (f"A conta da Testnet só tem {pt(free)} USDT livres (a Testnet não deixa depositar mais por aqui) "
+                        f"e a grelha precisava de {pt(G.build_grid(price, capital, rules, params)['budget'])}. Por isso o "
+                        f"capital foi ajustado de {capital:g} para {adjusted:g} USDT, nos dois bots. Se preferires outro "
+                        "valor, cancela e escolhe um capital mais baixo.")
+                capital = adjusted
+            return price, rules, params, grid, capital, note
+        reader = make_reader("", "")
+        rules = reader.symbol_rules(pair)
+        if rules.get("status") != "TRADING":
+            raise G.GridRefused(f"O par {pair} não está em negociação normal na Binance.")
+        price = float(reader.ticker24(pair)["lastPrice"])
         params = bot_params()
-        return price, rules, params, G.build_grid(price, capital, rules, params)
+        return price, rules, params, G.build_grid(price, capital, rules, params), capital, note
 
     def testnet_pairs(cache, force=False):
         """Sugestões reais filtradas para os pares que existem na Testnet."""
@@ -775,7 +800,7 @@ def create_app(test_config=None):
                               "Desmarca a opção ou escolhe outro par.", "error")
                         return redirect(url_for("bot_new", modo=mode))
                 # com duplicado, os dois bots usam o preço e as regras da Testnet (comparação justa)
-                price, rules, params, g = preview_grid(pair, capital, "testnet" if twin else mode)
+                price, rules, params, g, capital, funding_note = preview_grid(pair, capital, "testnet" if twin else mode)
             except (G.GridRefused, BinanceError, TraderError) as exc:
                 flash(str(exc), "error")
                 return redirect(url_for("bot_new", modo=mode))
@@ -798,7 +823,7 @@ def create_app(test_config=None):
                 return redirect(url_for("bot_detail", bot_id=bid))
             return render_template("bot_preview.html", chosen=chosen, capital=capital, price=price, rules=rules, g=g,
                                    p={**G.DEFAULTS, **params}, cost=G.cost_pct(), mode=mode, twin=twin,
-                                   never_below=never_below)
+                                   never_below=never_below, note=funding_note)
         return render_template("bot_new.html", cache=cache, capital=default_capital(), mode=mode)
 
     @app.get("/bots/<int:bot_id>")

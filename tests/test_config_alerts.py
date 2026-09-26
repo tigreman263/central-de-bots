@@ -390,3 +390,37 @@ def test_the_duplicate_is_refused_when_the_pair_or_the_testnet_keys_are_missing(
     ex.has_keys = True
     r = c.post("/bots/novo", data=_sim_form(c, twin="1", step="create"))              # tudo em ordem: cria os dois
     assert len(botstore.all_bots(conn)) == 2
+
+
+# ---------- saldo da Testnet: ajusta o capital em vez de recusar ----------
+def test_capital_is_adjusted_to_the_free_testnet_balance_for_both_twin_bots(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    ex.free_balance = lambda asset: 400.0                                             # a Testnet só tem 400 USDT livres
+    data = _sim_form(c, twin="1", capital="10000")
+    preview = c.post("/bots/novo", data=data).get_data(as_text=True)
+    assert "só tem 400,00 USDT livres" in preview and "ajustado de 10000 para" in preview
+    assert not botstore.all_bots(conn)                                                # só depois de aprovares é que cria
+    import re
+    adjusted = float(re.search(r'name="capital" value="([\d.]+)"', preview).group(1))
+    assert 0 < adjusted < 10000 and adjusted * 0.75 <= 400                            # o orçamento da grelha cabe no saldo
+    c.post("/bots/novo", data={**data, "capital": str(adjusted), "step": "create"})
+    rows = botstore.all_bots(conn)
+    assert len(rows) == 2 and {r["capital_usdt"] for r in rows} == {adjusted}         # o mesmo valor nos dois bots
+
+
+def test_no_adjustment_when_the_testnet_has_enough_and_a_clear_error_when_it_has_almost_nothing(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    ok = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="200")).get_data(as_text=True)
+    assert "capital foi ajustado" not in ok and 'name="capital" value="200.0"' in ok
+    ex.free_balance = lambda asset: 3.0
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="200", step="create"), follow_redirects=True)
+    assert "só tem 3,00 USDT livres" in r.get_data(as_text=True) and not botstore.all_bots(conn)
+
+
+def test_only_the_grid_budget_has_to_fit_not_the_cash_reserve(panel):
+    c, ex, app, tmp = panel
+    ex.free_balance = lambda asset: 160.0                     # capital 200: orçamento da grelha = 150 (75%), cabe
+    page = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="200")).get_data(as_text=True)
+    assert "capital foi ajustado" not in page and 'name="capital" value="200.0"' in page

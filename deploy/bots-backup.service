@@ -1,5 +1,5 @@
 [Unit]
-Description=Central de Bots - cópia de segurança da base de dados
+Description=Malha - cópia de segurança da base de dados
 
 [Service]
 Type=oneshot

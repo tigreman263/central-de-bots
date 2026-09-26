@@ -1,4 +1,4 @@
-"""Central de Bots, v0.1: painel com palavra-passe, configuração, preços e PARAR TUDO.
+"""Malha, v0.1: painel com palavra-passe, configuração, preços e PARAR TUDO.
 
 Só modo simulação. Nada aqui envia ordens.
 """
@@ -586,7 +586,7 @@ def create_app(test_config=None):
                 if not token or not chat:
                     flash("Preenche o token do bot e o id da conversa.", "error")
                 else:
-                    ok, err = (notify.SENDER or notify.send)(token, chat, "Central de Bots: mensagem de teste. "
+                    ok, err = (notify.SENDER or notify.send)(token, chat, "Malha: mensagem de teste. "
                                                              "Os alertas dos bots chegam aqui.")
                     if not ok:
                         flash(f"Não consegui enviar: {err}. Confirma o token e o id da conversa.", "error")

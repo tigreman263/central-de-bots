@@ -40,13 +40,13 @@ def check(conn, state_path, now=None, sender=None):
             result = "parado"
             state["alerted"] = now
             if creds:
-                sender(creds[0], creds[1], "Central de Bots · o corredor dos bots parou de dar sinal"
+                sender(creds[0], creds[1], "Malha · o corredor dos bots parou de dar sinal"
                                            + (f" há {int(age // 60)} min." if age is not None else "."))
     elif state.get("alerted"):
         result = "voltou"
         state["alerted"] = 0
         if creds:
-            sender(creds[0], creds[1], "Central de Bots · o corredor voltou a dar sinal.")
+            sender(creds[0], creds[1], "Malha · o corredor voltou a dar sinal.")
     state_path.write_text(json.dumps(state))
     return result
 

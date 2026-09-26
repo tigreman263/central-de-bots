@@ -4,7 +4,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parent
 out = root / "analise-chatgpt.md"
 
-intro = '''# Pedido de análise: Central de Bots (bots de grelha para a Binance)
+intro = '''# Pedido de análise: Malha (bots de grelha para a Binance)
 
 És um revisor sénior de software e de sistemas de trading automático. Analisa este projeto com espírito crítico e responde
 em português de Portugal. Sê concreto: cada achado com ficheiro e função, o cenário em que falha, a gravidade

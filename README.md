@@ -1,4 +1,6 @@
-# Central de Bots (v0.3, Testnet)
+# Malha (v0.3, Testnet)
+
+**Malha**: central de bots de grelha para a Binance, com painel web.
 
 Bots de grelha em **simulação** ou na **Binance Testnet** (ordens reais numa conta fictícia). Nunca opera na conta real:
 a chave real é só de leitura. Ver `docs/DESIGN.md`, `docs/UI.md`, `docs/V02.md`, `docs/V03.md`.

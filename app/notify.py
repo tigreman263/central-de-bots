@@ -52,7 +52,7 @@ def bot_events(conn, eng, events, now_ms=None):
                      (key, eng.pair, SEVERITY[e["kind"]], message,
                       now.isoformat(timespec="seconds"), now.isoformat(timespec="seconds")))
         if creds:
-            sender(creds[0], creds[1], f"Central de Bots · {message}")
+            sender(creds[0], creds[1], f"Malha · {message}")
     cutoff = (now - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
     conn.execute("UPDATE alerts SET closed = 1 WHERE key LIKE 'bot:%' AND first_ts < ?", (cutoff,))
     conn.commit()

@@ -1,5 +1,5 @@
 [Unit]
-Description=Central de Bots - painel
+Description=Malha - painel
 After=network-online.target time-sync.target
 Wants=network-online.target
 

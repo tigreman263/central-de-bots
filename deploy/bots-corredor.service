@@ -1,5 +1,5 @@
 [Unit]
-Description=Central de Bots - corredor dos bots
+Description=Malha - corredor dos bots
 After=network-online.target time-sync.target bots-painel.service
 Wants=network-online.target
 

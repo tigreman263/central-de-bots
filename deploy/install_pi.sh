@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala a Central de Bots num Raspberry Pi OS (Bookworm, 64 bits). Corre com: sudo bash deploy/install_pi.sh
+# Instala a Malha num Raspberry Pi OS (Bookworm, 64 bits). Corre com: sudo bash deploy/install_pi.sh
 # Antes: copia o projeto para /opt/bots/app (git clone ou rsync), sem a pasta .venv nem data/.
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Cópia de segurança horária da Central de Bots
+Description=Cópia de segurança horária da Malha
 
 [Timer]
 OnCalendar=hourly

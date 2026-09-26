@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Bot {{ bot.pair }} · Central de Bots{% endblock %}
+{% block title %}Bot {{ bot.pair }} · Malha{% endblock %}
 {% block body %}
 <h2>Grelha {{ bot.pair }}</h2>
 <p class="sub">{% if bot.mode == 'testnet' %}<b>Testnet</b> · ordens reais na conta fictícia · capital {% else %}Simulação · capital virtual {% endif %}{{ '%g' % bot.capital_usdt }} USDT

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{% block title %}Central de Bots{% endblock %}</title>
+<title>{% block title %}Malha{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
@@ -11,7 +11,7 @@
 <div class="sim" role="status">MODO SIMULAÇÃO · dinheiro fictício · nenhuma ordem toca na tua conta real</div>
 {% if logged_in %}
 <header class="top">
-  <h1>Central de Bots</h1>
+  <h1>Malha</h1>
   <div class="cur" role="group" aria-label="Moeda">
     {% for c in currencies %}<a href="{{ url_for('set_currency', code=c) }}" {% if c == cur %}aria-current="true"{% endif %}>{{ c }}</a>{% endfor %}
   </div>

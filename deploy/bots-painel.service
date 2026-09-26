@@ -1,0 +1,22 @@
+[Unit]
+Description=Central de Bots - painel
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+User=bots
+EnvironmentFile=/etc/bots.env
+WorkingDirectory=/opt/bots/app
+ExecStart=/opt/bots/venv/bin/waitress-serve --listen=${BOTS_HOST}:${BOTS_PORT} --call app:create_app
+Restart=always
+RestartSec=5
+MemoryMax=300M
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/bots
+
+[Install]
+WantedBy=multi-user.target

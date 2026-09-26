@@ -1,0 +1,9 @@
+[Unit]
+Description=Central de Bots - vigia do corredor (avisa no Telegram se parar)
+
+[Service]
+Type=oneshot
+User=bots
+EnvironmentFile=/etc/bots.env
+WorkingDirectory=/opt/bots/app
+ExecStart=/opt/bots/venv/bin/python -m app.watchdog

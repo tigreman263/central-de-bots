@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Estatísticas · Central de Bots{% endblock %}
+{% block body %}
+<h2>Estatísticas</h2>
+<p class="sub">Resultados dos bots (simulação e Testnet), sempre líquidos de comissões. Valores em USDT{% if cur != 'USDT' %} convertidos para {{ cur }}{% endif %}.</p>
+{% if not runner.alive %}<p class="flash error">{{ runner.text }}</p>{% endif %}
+
+{% if compare %}
+<h3 style="margin:0 0 8px">Simulação vs Testnet (mesmo par, mesmas velas)</h3>
+{% for c in compare %}{% set a = c.testnet.stats %}{% set b = c.sim.stats %}
+<div class="card">
+  <b>{{ c.testnet.row.pair }}</b> <span class="tag">bot {{ c.testnet.row.id }} (Testnet) contra bot {{ c.sim.row.id }} (simulação)</span>
+  {% if a and b %}
+  <div class="tablewrap"><table class="coins"><thead><tr><th></th><th class="r">Testnet</th><th class="r">Simulação</th><th class="r">Diferença</th></tr></thead><tbody>
+    <tr><td data-label="">Lucro líquido (USDT)</td><td data-label="Testnet" class="r num">{{ a.net_profit | signed }}</td><td data-label="Simulação" class="r num">{{ b.net_profit | signed }}</td><td data-label="Diferença" class="r num">{{ (a.net_profit - b.net_profit) | signed }}</td></tr>
+    <tr><td data-label="">Comissões (USDT)</td><td data-label="Testnet" class="r num">{{ '%.3f' % a.fees }}</td><td data-label="Simulação" class="r num">{{ '%.3f' % b.fees }}</td><td data-label="Diferença" class="r num">{{ '%+.3f' % (a.fees - b.fees) }}</td></tr>
+    <tr><td data-label="">Ciclos completos</td><td data-label="Testnet" class="r num">{{ a.cycles }}</td><td data-label="Simulação" class="r num">{{ b.cycles }}</td><td data-label="Diferença" class="r num">{{ a.cycles - b.cycles }}</td></tr>
+    <tr><td data-label="">Pior ciclo (USDT)</td><td data-label="Testnet" class="r num">{{ '%.3f' % a.worst_cycle }}</td><td data-label="Simulação" class="r num">{{ '%.3f' % b.worst_cycle }}</td><td data-label="Diferença" class="r num">{{ '%+.3f' % (a.worst_cycle - b.worst_cycle) }}</td></tr>
+  </tbody></table></div>
+  <p class="tag">Se a simulação e a Testnet se afastam muito, as suposições da simulação (comissão, deslizamento, execução) precisam de ser revistas.</p>
+  {% else %}<p class="tag">Ainda sem dados nos dois bots.</p>{% endif %}
+</div>
+{% endfor %}{% endif %}
+
+{% for it in items %}{% set st = it.stats %}
+<div class="card">
+  <div class="row" style="justify-content:space-between"><b>Grelha {{ it.row.pair }}</b> <span class="tag">{{ 'Testnet' if it.row.mode == 'testnet' else 'simulação' }}</span>
+    <span class="pill {{ states[it.row.status][1] }}">{{ states[it.row.status][0] }}</span></div>
+  {% if st %}
+  <div class="cards" style="margin-top:12px">
+    <div class="card"><h3>Lucro líquido</h3><div class="big num {{ 'up' if st.net_profit >= 0 else 'down' }}" style="font-size:24px">{{ '▲' if st.net_profit >= 0 else '▼' }} {{ (st.net_profit * rate) | signed if rate else '-' }} {{ cur }}</div></div>
+    <div class="card"><h3>Comissões pagas</h3><div class="big num" style="font-size:24px">{{ '%.3f' % st.fees }}</div></div>
+    <div class="card"><h3>Ciclos completos</h3><div class="big num" style="font-size:24px">{{ st.cycles }}</div><p class="tag">{{ st.wins }} ganhos</p></div>
+    <div class="card"><h3>Perda máx. por operação</h3><div class="big num" style="font-size:24px">{{ '%.2f' % st.worst_loss_pct }}%</div><p class="tag">limite {{ '%g' % st.limit_loss_pct }}%</p></div>
+    <div class="card"><h3>Perda do dia / limite</h3><div class="big num" style="font-size:24px">{{ '%.2f' % st.day_loss_pct }}% / {{ '%g' % st.day_limit_pct }}%</div></div>
+    <div class="card"><h3>Tempo a correr</h3><div class="big num" style="font-size:24px">{{ '%.1f' % st.running_hours }} h</div>
+      <p class="tag">{% if st.running_hours >= 168 and it.row.status == 'running' %}7 dias seguidos sem intervenção ✓{% else %}meta: 168 h (7 dias) sem intervenção{% endif %}</p></div>
+  </div>
+  {% if it.chart %}
+  <div style="overflow-x:auto"><svg viewBox="0 0 {{ it.chart.w }} {{ it.chart.h }}" width="100%" style="min-width:420px" role="img" aria-label="Capital do bot ao longo do tempo">
+    <polyline points="{{ it.chart.line }}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    <circle cx="{{ it.chart.end[0] }}" cy="{{ it.chart.end[1] }}" r="4.5" fill="var(--accent)"/>
+    <text x="4" y="{{ it.chart.h - 24 }}" style="fill:var(--muted);font-size:11px">{{ '%.2f' % it.chart.lo }}</text>
+    <text x="4" y="24" style="fill:var(--muted);font-size:11px">{{ '%.2f' % it.chart.hi }}</text></svg></div>
+  <p class="tag">Capital do bot (USDT) ao longo do tempo. Uma leitura por hora.</p>
+  {% else %}<p class="tag">O gráfico aparece quando houver pelo menos duas leituras horárias.</p>{% endif %}
+  {% else %}<p class="tag">Sem dados ainda.</p>{% endif %}
+  <a class="btn small" href="{{ url_for('bot_detail', bot_id=it.row.id) }}">Ver detalhe</a>
+</div>
+{% else %}
+<div class="card"><p class="tag">Ainda não há bots. Cria o primeiro na aba Bots.</p></div>
+{% endfor %}
+{% endblock %}

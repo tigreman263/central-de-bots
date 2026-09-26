@@ -1,0 +1,24 @@
+[Unit]
+Description=Central de Bots - corredor dos bots
+After=network-online.target time-sync.target bots-painel.service
+Wants=network-online.target
+
+[Service]
+User=bots
+EnvironmentFile=/etc/bots.env
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=/opt/bots/app
+ExecStart=/opt/bots/venv/bin/python run_bots.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=300M
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/bots
+
+[Install]
+WantedBy=multi-user.target

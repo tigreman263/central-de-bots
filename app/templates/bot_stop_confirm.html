@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Parar bot · Central de Bots{% endblock %}
+{% block body %}
+<h2>Parar o bot {{ bot.pair }}?</h2>
+<p class="sub">Um bot parado não volta a arrancar: se quiseres outro, crias um novo.</p>
+<div class="card"><b>Vai cancelar {{ eng.orders | length }} {{ 'ordem' if eng.orders | length == 1 else 'ordens' }} aberta{{ '' if eng.orders | length == 1 else 's' }}{% if eng.s.get('base') and eng.s.base > 0 %} e fechar a posição{% endif %}.</b>
+  {% if eng.p.get('never_sell_below_cost') %}<p class="tag">Este bot tem a regra "nunca vender abaixo do custo": se vender agora desse prejuízo, a moeda fica guardada.</p>{% endif %}
+  {% if bot.mode == 'testnet' %}<p class="tag">Na Testnet, a posição é fechada com uma ordem ao mercado (dinheiro fictício).</p>{% endif %}</div>
+<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="stop"><input type="hidden" name="confirm" value="1">
+  <a class="btn" href="{{ url_for('bot_detail', bot_id=bot.id) }}">Cancelar</a>
+  <button class="btn danger big-stop">Parar bot</button>
+</form>
+{% endblock %}

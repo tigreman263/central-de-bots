@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Alertas · Central de Bots{% endblock %}
+{% block body %}
+<h2>Alertas e registo</h2>
+<p class="sub">Riscos do portefólio, avisos dos bots e ações feitas no painel. Os avisos dos bots também chegam ao Telegram, se o ligares.</p>
+
+<h3 style="margin:0 0 8px">Alertas abertos</h3>
+{% if open_alerts %}
+<div class="stack" style="margin-bottom:24px">
+  {% for a in open_alerts %}
+    <div class="card">
+      <span class="pill {{ 'loss' if a.severity == 'alto' else 'warn' if a.severity == 'atenção' else 'gain' }}">{{ a.severity }}</span>
+      {% if a.seen %}<span class="tag">visto</span>{% endif %}
+      <p style="margin:8px 0">{{ a.message }}</p>
+      <p class="tag num">desde {{ a.first_ts.replace('T', ' ')[:16] }} UTC</p>
+      {% if not a.seen %}
+      <form method="post" action="{{ url_for('alert_seen') }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="key" value="{{ a.key }}"><button class="btn small">Marcar como visto</button></form>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="tag">Sem alertas abertos.</p></div>
+{% endif %}
+
+<h3 style="margin:0 0 8px">Registo de ações</h3>
+{% if rows %}
+<div class="stack">
+  {% for r in rows %}
+    <div class="card"><b>{{ r.action }}</b>
+      {% if r.detail %}<p class="tag">{{ r.detail }}</p>{% endif %}
+      <p class="tag num">{{ r.ts.replace('T', ' ')[:19] }} UTC</p></div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><p class="tag">Ainda não há registos.</p></div>
+{% endif %}
+{% endblock %}

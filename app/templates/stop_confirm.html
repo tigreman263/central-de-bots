@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{% if resume %}Reativar{% else %}Parar tudo{% endif %} · Central de Bots{% endblock %}
+{% block body %}
+{% if resume %}
+<h2>Reativar o sistema?</h2>
+<p class="sub">Sai do modo seguro. Os bots continuam parados até os ligares um a um.</p>
+<form method="post" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <a class="btn pri" href="{{ url_for('inicio') }}">Cancelar</a>
+  <button class="btn">Reativar</button>
+</form>
+{% else %}
+<h2>Parar todos os bots?</h2>
+<p class="sub">Para todos os bots e cancela as ordens abertas. O sistema fica em modo seguro até o reativares.</p>
+<div class="card"><b>Vai parar {{ n_bots }} bot{{ '' if n_bots == 1 else 's' }} e cancelar {{ n_orders }} {{ 'ordem' if n_orders == 1 else 'ordens' }} aberta{{ '' if n_orders == 1 else 's' }}.</b>
+  <p class="tag">Nos bots da Testnet a posição em moeda é fechada ao preço de mercado, a não ser que o bot tenha a regra "nunca vender abaixo do custo" ligada e vender desse prejuízo: aí a moeda fica.</p></div>
+<form method="post" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <a class="btn" href="{{ url_for('inicio') }}">Cancelar</a>
+  <button class="btn danger big-stop">Parar tudo</button>
+</form>
+{% endif %}
+{% endblock %}

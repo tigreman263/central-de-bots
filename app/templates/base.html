@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}Central de Bots{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+<a class="skip" href="#conteudo">Saltar para o conteúdo</a>
+<div class="sim" role="status">MODO SIMULAÇÃO · dinheiro fictício · nenhuma ordem toca na tua conta real</div>
+{% if logged_in %}
+<header class="top">
+  <h1>Central de Bots</h1>
+  <div class="cur" role="group" aria-label="Moeda">
+    {% for c in currencies %}<a href="{{ url_for('set_currency', code=c) }}" {% if c == cur %}aria-current="true"{% endif %}>{{ c }}</a>{% endfor %}
+  </div>
+  {% if stopped %}
+    <a class="stop resume" href="{{ url_for('resume') }}">SISTEMA PARADO · Reativar</a>
+  {% else %}
+    <a class="stop" href="{{ url_for('stop_all') }}">PARAR TUDO</a>
+  {% endif %}
+</header>
+<div class="shell">
+  <nav aria-label="Secções">
+    {% for ep, label in [('inicio','Início'),('portfolio_page','Portefólio'),('staking_page','Staking'),('ai_page','Ai'),('bots','Bots'),('reserva','Reserva'),('estatisticas','Estatísticas'),('alerts_page','Alertas'),('config','Configuração')] %}
+      <a href="{{ url_for(ep) }}" {% if endpoint == ep or (ep == 'portfolio_page' and endpoint == 'portfolio_key') %}aria-current="page"{% endif %}>{{ label }}{% if alert_dot and ep in ('portfolio_page', 'alerts_page') %}<span class="dot {{ alert_dot }}" title="Alertas por ver"></span><span class="sr-only"> (alertas por ver)</span>{% endif %}</a>
+    {% endfor %}
+    <form method="post" action="{{ url_for('logout') }}" class="logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><button class="linkbtn">Sair</button>
+    </form>
+  </nav>
+  <main id="conteudo">
+    {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}
+      <p class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ m }}</p>
+    {% endfor %}{% endwith %}
+    {% block body %}{% endblock %}
+  </main>
+</div>
+<div class="mobnav" role="navigation" aria-label="Menu">
+  {% for ep, label in [('inicio','Início'),('portfolio_page','Portefólio'),('bots','Bots'),('reserva','Reserva'),('more','Mais')] %}
+    <a href="{{ url_for(ep) }}" {% if endpoint == ep or (ep == 'more' and endpoint in ('alerts_page','config','estatisticas','staking_page','ai_page')) %}aria-current="page"{% endif %}>{{ label }}{% if alert_dot and ep in ('portfolio_page', 'more') %}<span class="dot {{ alert_dot }}"></span>{% endif %}</a>
+  {% endfor %}
+</div>
+{% else %}
+<main class="solo" id="conteudo">
+  {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}
+    <p class="flash {{ cat }}" role="alert">{{ m }}</p>
+  {% endfor %}{% endwith %}
+  {% block solo %}{% endblock %}
+</main>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Central de Bots - cópia de segurança da base de dados
+
+[Service]
+Type=oneshot
+User=bots
+EnvironmentFile=/etc/bots.env
+WorkingDirectory=/opt/bots/app
+# Muda o destino para um disco USB ou uma pasta sincronizada. As chaves copiam-se à parte, cifradas.
+ExecStart=/opt/bots/venv/bin/python -m app.backup --dest /var/lib/bots/backups --keep-days 7

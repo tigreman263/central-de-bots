@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Bot {{ bot.pair }} · Central de Bots{% endblock %}
+{% block body %}
+<h2>Grelha {{ bot.pair }}</h2>
+<p class="sub">{% if bot.mode == 'testnet' %}<b>Testnet</b> · ordens reais na conta fictícia · capital {% else %}Simulação · capital virtual {% endif %}{{ '%g' % bot.capital_usdt }} USDT
+  · <span class="pill {{ states[bot.status][1] }}">{{ states[bot.status][0] }}</span></p>
+{% if bot.reason %}<p class="flash warnbar">{{ bot.reason }}</p>{% endif %}
+{% if bot.warning %}<p class="flash error">{{ bot.warning }}</p>{% endif %}
+{% if not runner.alive %}<p class="flash error">{{ runner.text }}</p>{% endif %}
+{% if bot.command %}<p class="tag">Pedido pendente: {{ bot.command }}. O corredor aplica-o no próximo minuto.</p>{% endif %}
+
+{% if stats %}
+<div class="cards">
+  <div class="card"><h3>Lucro líquido</h3><div class="big num {{ 'up' if stats.net_profit >= 0 else 'down' }}">{{ '▲' if stats.net_profit >= 0 else '▼' }} {{ stats.net_profit | signed }}</div>
+    <p class="tag">USDT, já sem comissões · {{ '%+.2f' % stats.net_pct }}%</p></div>
+  <div class="card"><h3>Ciclos / comissões</h3><div class="big num" style="font-size:24px">{{ stats.cycles }} / {{ '%.3f' % stats.fees }}</div>
+    <p class="tag">{{ stats.wins }} ganhos · pior ciclo {{ '%.3f' % stats.worst_cycle }} USDT</p></div>
+  <div class="card"><h3>Perda máx. por operação</h3><div class="big num" style="font-size:24px">{{ '%.2f' % stats.worst_loss_pct }}%</div>
+    <p class="tag">limite {{ '%g' % stats.limit_loss_pct }}%</p></div>
+  <div class="card"><h3>Perda do dia</h3><div class="big num" style="font-size:24px">{{ '%.2f' % stats.day_loss_pct }}%</div>
+    <p class="tag">limite {{ '%g' % stats.day_limit_pct }}% · a correr há {{ '%.1f' % stats.running_hours }} h</p></div>
+</div>
+{% endif %}
+
+{% if stats %}
+<div class="cards">
+  <div class="card"><h3>Realizado e por realizar</h3><div class="big num" style="font-size:22px">{{ stats.realized | signed }} / {{ stats.unrealized | signed }}</div>
+    <p class="tag">USDT · realizado = já vendido; por realizar = moeda ainda em carteira</p></div>
+  <div class="card"><h3>Contra comprar e manter</h3>
+    {% if stats.hold_pct is not none %}<div class="big num" style="font-size:22px">{{ '%+.2f' % stats.net_pct }}% / {{ '%+.2f' % stats.hold_pct }}%</div>
+    <p class="tag">bot / só guardar {{ bot.pair[:-4] }} desde o início · {{ 'a grelha está à frente' if stats.vs_hold_pct >= 0 else 'guardar teria rendido mais' }} ({{ '%+.2f' % stats.vs_hold_pct }} pontos)</p>{% else %}<p class="tag">Sem dados.</p>{% endif %}</div>
+  <div class="card"><h3>Ritmo</h3><div class="big num" style="font-size:22px">{% if stats.cycles_per_day is not none %}{{ '%.1f' % stats.cycles_per_day }} ciclos/dia{% else %}a medir{% endif %}</div>
+    <p class="tag">Um ciclo = uma compra e a venda seguinte.{% if stats.avg_cycle is not none %} Lucro médio por ciclo {{ '%.3f' % stats.avg_cycle }} USDT.{% endif %}{% if stats.fees_pct_of_gross is not none %} As comissões comem {{ '%.0f' % stats.fees_pct_of_gross }}% do ganho bruto.{% endif %}</p></div>
+  <div class="card"><h3>Risco</h3><div class="big num" style="font-size:22px">−{{ '%.2f' % stats.max_drawdown_pct }}% / {{ '%.1f' % stats.stop_distance_pct }}%</div>
+    <p class="tag">queda máxima do capital / distância ao stop{% if stats.never_below_cost %} · regra "nunca vender abaixo do custo" ligada{% endif %}</p></div>
+</div>
+<p class="tag">Com um capital pequeno o objetivo é validar a mecânica e aprender, não gerar rendimento. Uma grelha ganha em mercado lateral e perde em tendência.</p>
+{% endif %}
+
+<div class="row" style="margin-bottom:16px">
+  {% if bot.status == 'running' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="pause"><button class="btn">Pausar</button></form>{% endif %}
+  {% if bot.status == 'paused' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="resume"><button class="btn pri">Retomar</button></form>{% endif %}
+  {% if bot.status in ('running', 'paused') %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="stop"><button class="btn danger">Parar bot…</button></form>{% endif %}
+  <a class="btn" href="{{ url_for('bots') }}">Voltar</a>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between;margin-bottom:8px">
+    <h3 style="margin:0">Preço e negócios</h3>
+    <div class="row" role="group" aria-label="Janela de tempo">
+      {% for w in windows %}<a class="btn small {{ 'pri' if w == window }}" href="{{ url_for('bot_detail', bot_id=bot.id, janela=w) }}"{% if w == window %} aria-current="true"{% endif %}>{{ w }}</a>{% endfor %}
+    </div>
+  </div>
+  {% if pchart %}
+  <p class="legend tag">
+    <span><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true"><polygon class="ch-buy" points="0,-6 -6,5 6,5"/></svg> Compra</span>
+    <span><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true"><polygon class="ch-sell" points="0,6 -6,-5 6,-5"/></svg> Venda</span>
+    <span><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true"><path class="ch-liq" d="M-5,-5 L5,5 M5,-5 L-5,5"/></svg> Fecho da posição</span>
+    <span><svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><line class="ch-lvl buy" x1="0" y1="7" x2="22" y2="7"/></svg> Ordem de compra aberta</span>
+    <span><svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><line class="ch-lvl sell" x1="0" y1="7" x2="22" y2="7"/></svg> Ordem de venda aberta</span>
+    <span><svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><line class="ch-stop" x1="0" y1="7" x2="22" y2="7"/></svg> Stop</span>
+  </p>
+  <svg class="pchart" viewBox="0 0 {{ pchart.w }} {{ pchart.h }}" width="100%" role="img" aria-labelledby="pc-t" aria-describedby="pc-d">
+    <title id="pc-t">Preço e negócios do bot {{ bot.pair }}</title>
+    <desc id="pc-d">{{ pchart.summary }}</desc>
+    {% if pchart.band %}<rect class="ch-band" x="{{ pchart.ml }}" y="{{ pchart.band.y }}" width="{{ pchart.w - pchart.ml - pchart.mr }}" height="{{ pchart.band.h }}"/>{% endif %}
+    {% for t in pchart.yticks %}<text class="ch-ax" x="{{ pchart.ml - 6 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.label }}</text>{% endfor %}
+    {% for t in pchart.ticks %}<text class="ch-ax" x="{{ t.x }}" y="{{ pchart.h - 8 }}" text-anchor="{{ 'start' if loop.first else 'end' if loop.last else 'middle' }}">{{ t.label }}</text>{% endfor %}
+    {% for l in pchart.levels %}
+      <line class="ch-lvl {{ l.side or '' }}" x1="{{ pchart.ml }}" y1="{{ l.y }}" x2="{{ pchart.w - pchart.mr }}" y2="{{ l.y }}"/>
+      <text class="ch-ax" x="{{ pchart.w - pchart.mr + 4 }}" y="{{ l.y + 4 }}">{{ l.price }}</text>
+    {% endfor %}
+    {% if pchart.stop %}
+      <line class="ch-stop" x1="{{ pchart.ml }}" y1="{{ pchart.stop.y }}" x2="{{ pchart.w - pchart.mr }}" y2="{{ pchart.stop.y }}"/>
+      <text class="ch-stoptxt" x="{{ pchart.ml + 4 }}" y="{{ pchart.stop.y - 4 }}">Stop {{ pchart.stop.label }}</text>
+    {% endif %}
+    {% for e in pchart.events %}
+      <g><title>{{ e.tip }}</title><line class="ch-ev" x1="{{ e.x }}" y1="14" x2="{{ e.x }}" y2="{{ pchart.h - pchart.mb }}"/>
+      <text class="ch-evtxt" x="{{ e.x + 3 }}" y="{{ 24 + (loop.index0 % 3) * 11 }}">{{ e.label }}</text></g>
+    {% endfor %}
+    <polyline class="ch-price" points="{{ pchart.line }}"/>
+    <circle class="ch-last" cx="{{ pchart.last[0] }}" cy="{{ pchart.last[1] }}" r="3.5"/>
+    {% for m in pchart.marks %}
+      <g tabindex="0" aria-label="{{ m.tip }}"><title>{{ m.tip }}</title>
+      {% if m.kind == 'buy' %}<polygon class="ch-buy" points="{{ m.x }},{{ m.y - 7 }} {{ m.x - 6.5 }},{{ m.y + 5.5 }} {{ m.x + 6.5 }},{{ m.y + 5.5 }}"/>
+      {% elif m.kind == 'sell' %}<polygon class="ch-sell" points="{{ m.x }},{{ m.y + 7 }} {{ m.x - 6.5 }},{{ m.y - 5.5 }} {{ m.x + 6.5 }},{{ m.y - 5.5 }}"/>
+      {% else %}<path class="ch-liq" d="M{{ m.x - 5 }},{{ m.y - 5 }} L{{ m.x + 5 }},{{ m.y + 5 }} M{{ m.x + 5 }},{{ m.y - 5 }} L{{ m.x - 5 }},{{ m.y + 5 }}"/>{% endif %}
+      </g>
+    {% endfor %}
+    <text class="ch-watermark" x="{{ pchart.ml + 8 }}" y="{{ pchart.h - pchart.mb - 8 }}">{{ 'TESTNET' if bot.mode == 'testnet' else 'SIMULAÇÃO' }}</text>
+  </svg>
+  <p class="tag num">Horas em UTC · preço atual {{ pchart.last_price }}. A faixa clara é o intervalo da grelha.</p>
+  <details><summary>Ver negócios em lista</summary>
+    {% for m in pchart.marks %}<p style="margin:4px 0">{{ m.tip }}</p>{% else %}<p class="tag">O bot ainda não fez negócios nesta janela.</p>{% endfor %}
+  </details>
+  {% else %}<p class="tag">O gráfico aparece quando o bot tiver pelo menos duas velas guardadas (cerca de 2 minutos depois de arrancar).</p>{% endif %}
+</div>
+
+{% if equity %}
+<div class="card">
+  <h3>Capital do bot ao longo do tempo</h3>
+  <svg viewBox="0 0 {{ equity.w }} {{ equity.h }}" width="100%" role="img" aria-label="Capital do bot, de {{ '%.2f' % equity.lo }} a {{ '%.2f' % equity.hi }} USDT">
+    <polyline points="{{ equity.line }}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    <circle cx="{{ equity.end[0] }}" cy="{{ equity.end[1] }}" r="4.5" fill="var(--accent)"/>
+    <text x="4" y="{{ equity.h - 24 }}" style="fill:var(--muted);font-size:11px">{{ '%.2f' % equity.lo }}</text>
+    <text x="4" y="24" style="fill:var(--muted);font-size:11px">{{ '%.2f' % equity.hi }}</text></svg>
+  <p class="tag">USDT, uma leitura por hora.</p>
+</div>
+{% endif %}
+
+{% if eng.grid %}
+<div class="card">
+  <h3>Grelha e ordens abertas ({{ eng.orders | length }})</h3>
+  <p class="tag num">{{ eng.grid.levels }} degraus · {{ '%.6g' % eng.grid.lower }} a {{ '%.6g' % eng.grid.upper }} · stop {{ '%.6g' % eng.grid.stop }}</p>
+  <div class="tablewrap"><table class="coins"><thead><tr><th>Lado</th><th class="r">Preço</th><th class="r">Quantidade</th>{% if bot.mode == 'testnet' %}<th>Estado</th>{% endif %}</tr></thead><tbody>
+    {% for o in eng.orders | sort(attribute='price', reverse=True) %}
+      <tr><td data-label="Lado">{{ 'Venda' if o.side == 'sell' else 'Compra' }} (degrau {{ o.slot }})</td><td data-label="Preço" class="r num">{{ '%.6g' % o.price }}</td><td data-label="Quantidade" class="r num">{{ '%.6g' % o.qty }}</td>{% if bot.mode == 'testnet' %}<td data-label="Estado">{{ {'sending': 'a enviar', 'open': 'aberta', 'partial': 'parcial'}.get(o.state, o.state) }}</td>{% endif %}</tr>
+    {% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+
+<div class="card"><h3>Eventos</h3>
+  {% for e in events %}<p style="margin:4px 0"><span class="tag num">{{ (e.ts / 1000) | int | datefmt }}</span> {{ e.detail }}</p>{% else %}<p class="tag">Sem eventos.</p>{% endfor %}
+</div>
+<div class="card"><h3>Últimas execuções</h3>
+  {% if fills %}<div class="tablewrap"><table class="coins"><thead><tr><th>Hora</th><th>Lado</th><th class="r">Preço</th><th class="r">Comissão</th><th class="r">Ciclo</th></tr></thead><tbody>
+    {% for f in fills %}
+      <tr><td data-label="Hora" class="num">{{ (f.ts / 1000) | int | datefmt }}</td><td data-label="Lado">{{ 'Compra' if f.side == 'buy' else 'Venda' }}</td>
+        <td data-label="Preço" class="r num">{{ '%.6g' % f.price }}</td><td data-label="Comissão" class="r num">{{ '%.4f' % f.fee }}</td>
+        <td data-label="Ciclo" class="r num">{% if f.pnl is not none %}<span class="{{ 'up' if f.pnl >= 0 else 'down' }}">{{ f.pnl | signed }}</span>{% else %}-{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div>{% else %}<p class="tag">Ainda sem execuções.</p>{% endif %}
+</div>
+{% endblock %}

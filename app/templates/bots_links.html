@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Ligações dos bots · Central de Bots{% endblock %}
+{% block body %}
+<h2>Ligações dos bots</h2>
+<p class="sub">Chaves da Testnet e alertas por Telegram. Nada aqui toca na tua conta real.</p>
+
+<div class="card">
+  <h3>Chaves da Binance Testnet</h3>
+  <ol>
+    <li>Vai a <b>testnet.binance.vision</b> e entra com a tua conta (GitHub). É uma conta à parte, com dinheiro fictício.</li>
+    <li>Gera uma chave (HMAC). Estas chaves <b>não são</b> as da tua conta real e não funcionam nela.</li>
+    <li>Cola aqui a chave e o segredo. Ficam num ficheiro protegido fora da base de dados e do git, separado da chave real de leitura.</li>
+  </ol>
+  {% if testnet %}
+  <p>Chave guardada, termina em <b class="num">{{ testnet }}</b>.</p>
+  <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete_testnet"><button class="btn danger">Remover chaves</button></form>
+  {% endif %}
+  <form method="post" class="stack" style="margin-top:12px">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save_testnet">
+    <div class="field"><label for="api_key">Chave da Testnet (API Key)</label><input id="api_key" name="api_key" type="password" autocomplete="off" required></div>
+    <div class="field"><label for="api_secret">Segredo da Testnet (Secret Key)</label><input id="api_secret" name="api_secret" type="password" autocomplete="off" required></div>
+    <div class="row"><button class="btn pri">Testar e guardar</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Alertas por Telegram</h3>
+  <p class="tag">Só envio de mensagens: o bot do Telegram não recebe comandos, por isso não abre nenhuma porta de controlo dos bots.</p>
+  <ol>
+    <li>No Telegram, fala com <b>@BotFather</b>, cria um bot e copia o token.</li>
+    <li>Envia uma mensagem qualquer ao teu bot e obtém o id da tua conversa (por exemplo com <b>@userinfobot</b>).</li>
+    <li>Cola o token e o id aqui: enviamos uma mensagem de teste antes de guardar.</li>
+  </ol>
+  {% if telegram %}
+  <div class="row">
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="test_telegram"><button class="btn pri">Enviar mensagem de teste</button></form>
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete_telegram"><button class="btn danger">Remover</button></form>
+  </div>
+  {% endif %}
+  <form method="post" class="stack" style="margin-top:12px">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="save_telegram">
+    <div class="field"><label for="token">Token do bot</label><input id="token" name="token" type="password" autocomplete="off" required></div>
+    <div class="field"><label for="chat_id">Id da conversa</label><input id="chat_id" name="chat_id" autocomplete="off" required></div>
+    <div class="row"><button class="btn pri">Testar e guardar</button></div>
+  </form>
+</div>
+<a class="btn" href="{{ url_for('bots') }}">Voltar aos bots</a>
+{% endblock %}

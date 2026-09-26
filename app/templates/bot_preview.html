@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Aprovar bot · Central de Bots{% endblock %}
+{% block body %}
+<h2>Aprovar bot {{ chosen.pair }}</h2>
+<p class="sub">Passo 2 de 3: confirma a grelha e as proteções. Sem a tua aprovação, nada corre. {% if mode == 'testnet' %}Modo <b>Testnet</b>: as ordens são enviadas para a Testnet da Binance (dinheiro fictício).{% else %}É só simulação.{% endif %}</p>
+
+<div class="cards">
+  <div class="card"><h3>Grelha</h3>
+    <p class="num" style="margin:0">{{ g.levels }} degraus de {{ '%.6g' % g.lower }} a {{ '%.6g' % g.upper }}</p>
+    <p class="tag num">Preço atual {{ '%.6g' % price }} · degrau mínimo {{ '%.2f' % g.step_pct }}% (cobre comissões e deslizamento de {{ '%.2f' % cost }}% com folga)</p></div>
+  <div class="card"><h3>{{ 'Capital na Testnet' if mode == 'testnet' else 'Capital virtual' }}</h3>
+    <p class="num" style="margin:0">{{ '%g' % capital }} USDT</p>
+    <p class="tag num">{{ '%.2f' % g.budget }} na grelha · {{ '%.2f' % (capital - g.budget) }} de reserva de caixa ({{ '%g' % p.cash_reserve_pct }}%), nunca gasta</p></div>
+  <div class="card"><h3>Regras do par</h3>
+    <p class="tag num" style="margin:0">Ordem mínima {{ '%g' % rules.min_notional }} USDT · passo de preço {{ rules.tick }} · passo de quantidade {{ rules.step }}</p></div>
+</div>
+
+<div class="card">
+  <h3>Proteções (pontos de partida, validados nos testes de simulação)</h3>
+  <ul class="reasons">
+    <li>Perda máxima por operação: {{ '%g' % p.max_loss_trade_pct }}% do capital do bot (o tamanho dos degraus já a respeita).</li>
+    <li>Stop-loss a {{ '%.6g' % g.stop }} ({{ '%g' % p.stop_below_pct }}% abaixo do limite inferior), depois de {{ p.stop_minutes }} minutos seguidos abaixo.</li>
+    <li>Limite de inventário: no máximo {{ '%g' % p.inventory_limit_pct }}% do capital em moeda.</li>
+    {% if never_below %}<li><b>Nunca vender abaixo do custo: ligado.</b> O stop-loss e o "parar" não vendem com prejuízo: mantêm a moeda (o bot pausa ou pára sem vender).</li>{% endif %}
+    <li>Para de comprar após {{ p.max_consecutive_buys }} compras seguidas sem venda.</li>
+    <li>Pausa se o preço cair {{ '%g' % p.drop_pause_pct }}% numa hora, se perder {{ '%g' % p.daily_loss_pct }}% num dia ou {{ '%g' % p.pause_drawdown_pct }}% do capital.</li>
+    <li>Acima do intervalo: espera {{ p.upper_wait_minutes }} minutos e recentra no máximo {{ p.max_recenter_per_day }} vezes por dia.</li>
+    {% if mode == 'testnet' %}<li>Na Testnet as comissões, os preços e as execuções são os reais da Testnet (a comissão de 0,1% e o deslizamento só servem de margem de segurança ao montar a grelha).</li>
+    <li>Cada ordem passa pela guarda de risco antes de sair, tem um id único e, se o processo morrer, retoma sem duplicar. O PARAR TUDO cancela tudo em poucos segundos.</li>
+    {% if twin %}<li>Vai ser criado também um bot gémeo em simulação, para comparares os resultados.</li>{% endif %}
+    {% else %}<li>Comissão simulada de 0,1% por execução e deslizamento de 0,05% contra ti. Só conta como executada se o preço passar o nível.</li>{% endif %}
+  </ul>
+  <p class="tag">Numa queda forte a grelha perde: as proteções limitam a perda, não a evitam. Nada disto garante lucro.</p>
+</div>
+
+<form method="post" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="create">
+  <input type="hidden" name="pair" value="{{ chosen.pair }}">
+  <input type="hidden" name="modo" value="{{ mode }}">
+  {% if twin %}<input type="hidden" name="twin" value="1">{% endif %}
+  {% if never_below %}<input type="hidden" name="never_below_cost" value="1">{% endif %}
+  <input type="hidden" name="capital" value="{{ capital }}">
+  <a class="btn pri" href="{{ url_for('bot_new', modo=mode) }}">Cancelar</a>
+  <button class="btn">Aprovar e criar bot ({{ 'Testnet' if mode == 'testnet' else 'simulação' }})</button>
+</form>
+{% endblock %}

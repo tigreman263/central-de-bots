@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Chave da Binance · Central de Bots{% endblock %}
+{% block body %}
+<h2>Chave da Binance</h2>
+<p class="sub">Só de leitura. O painel recusa chaves com permissão de trading, margem, futuros ou levantamentos.</p>
+
+<div class="card">
+  <h3>Como criar a chave na Binance</h3>
+  <ol>
+    <li>Na Binance, vai a Gestão de API e cria uma chave nova.</li>
+    <li>Ativa <b>só</b> "Ativar leitura". Deixa desligados o trading e os levantamentos.</li>
+    <li>Restringe a chave ao IP da tua casa (ou desta máquina).</li>
+    <li>Cola aqui a chave e o segredo. O segredo só é mostrado uma vez pela Binance.</li>
+  </ol>
+</div>
+
+{% if masked %}
+<div class="card">
+  <h3>Chave guardada</h3>
+  <p>Termina em <b class="num">{{ masked }}</b>. Nunca é mostrada por inteiro.</p>
+  <div class="row">
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="test"><button class="btn pri">Testar ligação</button></form>
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="delete"><button class="btn danger">Remover chave</button></form>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" class="card stack">
+  <h3 style="margin:0">{{ 'Substituir a chave' if masked else 'Guardar chave' }}</h3>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="save">
+  <div class="field"><label for="api_key">Chave (API Key)</label>
+    <input id="api_key" name="api_key" type="password" autocomplete="off" required></div>
+  <div class="field"><label for="api_secret">Segredo (Secret Key)</label>
+    <input id="api_secret" name="api_secret" type="password" autocomplete="off" required></div>
+  <div class="row"><button class="btn pri">Testar e guardar</button></div>
+  <p class="tag">A chave fica num ficheiro protegido fora da base de dados e do git. Só é guardada se o teste passar.</p>
+</form>
+{% endblock %}

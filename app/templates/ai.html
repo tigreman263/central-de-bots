@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Ai · Central de Bots{% endblock %}
+{% block body %}
+<h2>Ai</h2>
+<p class="sub">Análise completa da carteira, calculada por código, cada ponto com o número que o justifica. Nada aqui compra, vende ou subscreve.</p>
+
+{% if not pf %}
+  <div class="card"><p>Liga primeiro a chave da Binance (só leitura) para analisar o portefólio.</p>
+    <a class="btn pri" href="{{ url_for('portfolio_key') }}">Ligar chave</a></div>
+{% else %}
+{% set b = report.blocks %}
+
+<div class="card">
+  <h3>Sugestões de melhoria, por importância</h3>
+  {% if report.tips %}
+  <ol class="tips-list">
+    {% for t in report.tips %}<li>{{ t.text }} <span class="tag num">Número: {{ t.number }}</span></li>{% endfor %}
+  </ol>
+  {% else %}<p class="tag">Sem sugestões agora.</p>{% endif %}
+</div>
+
+<div class="cards">
+  <div class="card"><h3>Desempenho</h3>
+    <table><tbody>
+      {% for label, k in [('24 h', 'change24'), ('7 dias', 'change7d'), ('30 dias', 'change30d')] %}
+        <tr><td>{{ label }}</td><td class="r num">{% if b.desempenho[k] is not none %}<span class="{{ 'up' if b.desempenho[k] >= 0 else 'down' }}">{{ '▲' if b.desempenho[k] >= 0 else '▼' }} {{ '%+.1f' % b.desempenho[k] }}%</span>{% else %}-{% endif %}</td></tr>
+      {% endfor %}
+    </tbody></table>
+    <p class="tag">Ponderado pelo valor das moedas com histórico.</p></div>
+  <div class="card"><h3>Concentração</h3>
+    <p style="margin:0">{% for coin, w in b.concentracao.top3 %}{{ coin }} {{ '%.1f' % w }}%{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    <p class="tag num">Top 3 = {{ '%.1f' % b.concentracao.top3_share }}% · índice {{ '%.2f' % b.concentracao.hhi }} (1 = tudo numa moeda)</p></div>
+  <div class="card"><h3>Risco</h3>
+    <p style="margin:0" class="num">Volatilidade diária média: {{ '%.1f' % b.risco.vol30_ponderada ~ '%' if b.risco.vol30_ponderada is not none else '-' }}</p>
+    <p class="tag num">Stablecoins: {{ '%.1f' % b.risco.stable_share }}% · {{ b.risco.alertas }} alerta(s) aberto(s)</p></div>
+  <div class="card"><h3>Diversificação</h3>
+    <p style="margin:0" class="num">{{ b.diversificacao.moedas }} moedas · {{ b.diversificacao.moedas_2pct }} com mais de 2%</p>
+    <p class="tag num">{{ b.diversificacao.n_para_90pct }} moeda(s) somam 90% · {{ b.diversificacao.poeira }} posições minúsculas</p></div>
+  <div class="card"><h3>Staking</h3>
+    <p style="margin:0" class="num">{{ '%.1f' % b.staking.earn_share }}% do portefólio em Earn</p>
+    <p class="tag num">{% if b.staking.yearly_usdt is not none %}Rendimento estimado ~{{ '%.2f' % b.staking.yearly_usdt }} USDT/ano{% else %}Abre a aba Staking para ver as posições{% endif %}</p></div>
+</div>
+
+<div class="card">
+  <h3>Lucro/prejuízo por moeda (com o teu custo médio)</h3>
+  {% if b.lucro_prejuizo.linhas %}
+  <table><thead><tr><th>Moeda</th><th class="r">Custo</th><th class="r">Preço</th><th class="r">Lucro/prejuízo (USDT)</th><th class="r">%</th></tr></thead><tbody>
+    {% for coin, cost, price, pnl, pct in b.lucro_prejuizo.linhas %}
+      <tr><td><b>{{ coin }}</b></td><td class="r num">{{ '%g' % cost }}</td><td class="r num">{{ '%g' % price }}</td>
+        <td class="r num"><span class="{{ 'up' if pnl >= 0 else 'down' }}">{{ '▲' if pnl >= 0 else '▼' }} {{ pnl | signed }}</span></td>
+        <td class="r num">{{ '%+.1f' % pct }}%</td></tr>
+    {% endfor %}
+  </tbody></table>
+  {% else %}<p class="tag">Ainda não definiste o custo médio de nenhuma moeda. Faz isso no Portefólio.</p>{% endif %}
+  {% if b.lucro_prejuizo.sem_custo %}<p class="tag">Sem custo: {{ b.lucro_prejuizo.sem_custo | join(', ') }}. Nunca estimo um custo que não me deste.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Conversa com a IA</h3>
+  <p class="tag">Ainda não ligada. Quando existir, receberá só o resumo abaixo (valores completos, sem chaves nem IDs de conta), o envio será sempre manual e visível, e a resposta nunca vira ordem: a IA não tem ferramentas nem acesso à chave.</p>
+  <div class="row"><input placeholder="Pergunta sobre a tua carteira…" aria-label="Pergunta" disabled style="max-width:420px"><button class="btn" disabled>Perguntar</button></div>
+  {% if problems %}
+    <p class="flash error" role="alert">O resumo foi bloqueado porque {{ problems | join('; ') }}.</p>
+  {% else %}
+  <details style="margin-top:12px"><summary class="tag" style="cursor:pointer">Ver exatamente o que iria ser enviado</summary>
+    <pre class="jsonbox">{{ summary_text }}</pre></details>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Configuração · Central de Bots{% endblock %}
+
+{% macro recs(key) %}
+{% set r = rec.fields[key] %}
+<details class="recs">
+  <summary>Recomendações</summary>
+  <p><b>{{ r.summary }}</b></p>
+  <ul class="profiles">
+    {% for name, text, apply in r.profiles %}
+      <li><span><b>{{ name }}:</b> {{ text }}</span>
+        {% if apply %}<button type="button" class="btn small" data-apply='{{ apply | tojson }}'>Aplicar</button>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  <p class="tag">Erro comum: {{ r.mistake }}</p>
+  <p class="tag">Com pouco capital: {{ r.small }}</p>
+</details>
+{% endmacro %}
+
+{% block body %}
+<h2>Configuração</h2>
+<p class="sub">As alterações só se aplicam depois de confirmares o resumo "antes → depois".</p>
+
+<div class="card tips">
+  <h3>Boas práticas</h3>
+  <ol>{% for t in rec.general %}<li>{{ t }}</li>{% endfor %}</ol>
+  <p class="tag">{{ rec.disclaimer }}</p>
+</div>
+
+<form method="post" class="stack" id="cfgform">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="preview">
+
+  <div class="card stack">
+    <h3>Capital e divisão do saldo</h3>
+    <div class="field"><label for="capital_eur">Capital simulado (EUR)</label>
+      <input id="capital_eur" name="capital_eur" inputmode="decimal" value="{{ cfg.capital_eur }}" required>
+      <small>O valor fictício com que os bots simulam.</small>
+      {{ recs('capital') }}</div>
+    <div class="field"><label for="split_reserve">Reserva (%)</label>
+      <input id="split_reserve" name="split_reserve" inputmode="decimal" value="{{ cfg.split_reserve }}" required>
+      <small>Fica intocável. Nenhum bot lhe mexe.</small></div>
+    <div class="field"><label for="split_trading">Trading (%)</label>
+      <input id="split_trading" name="split_trading" inputmode="decimal" value="{{ cfg.split_trading }}" required>
+      <small>O único capital que os bots podem usar.</small></div>
+    <div class="field"><label for="split_cash">Caixa (%)</label>
+      <input id="split_cash" name="split_cash" inputmode="decimal" value="{{ cfg.split_cash }}" required>
+      <small>Margem de segurança em stablecoins. As três percentagens têm de somar 100%.</small>
+      {{ recs('split') }}</div>
+  </div>
+
+  <div class="card stack">
+    <h3>Risco e lucro</h3>
+    <div class="field"><label for="max_loss_trade">Perda máxima por operação (%)</label>
+      <input id="max_loss_trade" name="max_loss_trade" inputmode="decimal" value="{{ cfg.max_loss_trade }}" required>
+      <small>Entre 0,5 e 5. Ponto de partida: 2.</small>
+      {{ recs('max_loss_trade') }}</div>
+    <div class="field"><label for="profit_to_reserve">Lucro que vai para a reserva (%)</label>
+      <input id="profit_to_reserve" name="profit_to_reserve" inputmode="decimal" value="{{ cfg.profit_to_reserve }}" required>
+      <small>Aplica-se ao lucro realizado. Ponto de partida: 50.</small>
+      {{ recs('profit_to_reserve') }}</div>
+    <div class="field"><label for="pause_drawdown">Pausar se o trading cair (%)</label>
+      <input id="pause_drawdown" name="pause_drawdown" inputmode="decimal" value="{{ cfg.pause_drawdown }}" required>
+      <small>Entre 5 e 50. Ponto de partida: 20.</small>
+      {{ recs('pause_drawdown') }}</div>
+  </div>
+
+  <div class="card stack">
+    <h3>Limiares de risco do portefólio</h3>
+    <p class="tag">O painel avisa quando uma moeda passa estes limites. Cada risco tem dois níveis: <b>atenção</b> (vê isto) e <b>alto</b> (mais grave). Pontos de partida a validar: ajusta depois de veres os primeiros alertas reais. Nada aqui compra ou vende.</p>
+    {% for it in rec.risk_items %}
+      <div class="field riskitem">
+        <label>{{ it.title }} <span class="tag">({{ it.unit }})</span></label>
+        <small>{{ it.what }}</small>
+        <div class="row">
+          <div class="field" style="flex:1;min-width:150px"><label for="{{ it.attn_key }}" class="tag">{{ it.attn_label }}</label>
+            <input id="{{ it.attn_key }}" name="{{ it.attn_key }}" inputmode="decimal" value="{{ cfg[it.attn_key] }}" required></div>
+          <div class="field" style="flex:1;min-width:150px"><label for="{{ it.high_key }}" class="tag">{{ it.high_label }}</label>
+            <input id="{{ it.high_key }}" name="{{ it.high_key }}" inputmode="decimal" value="{{ cfg[it.high_key] }}" required></div>
+        </div>
+        <details class="recs">
+          <summary>Recomendações</summary>
+          <ul class="profiles">
+            {% for name, text, a, h in it.profiles %}
+              <li><span><b>{{ name }}:</b> {{ text }}.</span>
+                <button type="button" class="btn small" data-apply='{{ {it.attn_key: a, it.high_key: h} | tojson }}'>Aplicar</button></li>
+            {% endfor %}
+          </ul>
+          <p class="tag">Erro comum: {{ it.mistake }}</p>
+          <p class="tag">Na tua situação: {{ it.small }}</p>
+        </details>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h3>Categorias a evitar nas sugestões</h3>
+    {% for code, label in categories.items() %}
+      <label class="switch"><span>{{ label }}</span>
+        <input type="checkbox" name="exclusions" value="{{ code }}" {% if code in cfg.exclusions.split(',') %}checked{% endif %}></label>
+    {% endfor %}
+    {{ recs('exclusions') }}
+  </div>
+
+  <div class="row"><button class="btn pri">Rever alterações</button></div>
+</form>
+
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('[data-apply]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var values = JSON.parse(btn.dataset.apply);
+    Object.keys(values).forEach(function (name) {
+      if (name === 'exclusions') {
+        document.querySelectorAll('input[name="exclusions"]').forEach(function (box) {
+          box.checked = values.exclusions.indexOf(box.value) !== -1;
+        });
+      } else {
+        document.getElementById(name).value = values[name];
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Criar bot · Central de Bots{% endblock %}
+{% block body %}
+<h2>Criar bot de grelha</h2>
+<div class="row" style="margin-bottom:8px">
+  <a class="btn {{ 'pri' if mode == 'sim' }}" href="{{ url_for('bot_new', modo='sim') }}">Simulação</a>
+  <a class="btn {{ 'pri' if mode == 'testnet' }}" href="{{ url_for('bot_new', modo='testnet') }}">Testnet</a>
+</div>
+<p class="sub">Passo 1 de 3: escolhe o par. O código filtra por liquidez, spread e movimento moderado.
+{% if mode == 'testnet' %}<b>Testnet:</b> o bot envia ordens reais para a Testnet da Binance (dinheiro fictício, conta à parte), com as velas da Testnet. Só aparecem pares que existem lá.
+{% else %}Só simulação, com preços reais e dinheiro virtual.{% endif %}</p>
+{% if mode == 'testnet' %}<p class="tag">Precisas das chaves da Testnet em <a href="{{ url_for('bot_links') }}">Bots &gt; Ligações</a>.</p>{% endif %}
+
+{% if cache.error %}
+  <p class="flash error" role="alert">Não consegui ler os pares da Binance ({{ cache.error }}). Tenta de novo daqui a pouco.</p>
+{% endif %}
+{% if not cache.data and not cache.error %}
+  <div class="card"><p class="tag">Nenhum par passa os filtros agora. Os filtros são pontos de partida: volume acima de 20 M USDT, spread até 0,05% e movimento de 2% a 8% em 24 h.</p></div>
+{% endif %}
+
+{% if cache.data %}
+<form method="post" class="stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="preview">
+  <input type="hidden" name="modo" value="{{ mode }}">
+  <div class="card stack">
+    <h3 style="margin:0">Pares sugeridos, por pontuação</h3>
+    {% for s in cache.data %}
+      <label class="sug" style="display:block;cursor:pointer">
+        <div class="row" style="justify-content:space-between">
+          <span><input type="radio" name="pair" value="{{ s.pair }}" {% if loop.first %}checked{% endif %}> <b>{{ s.pair }}</b></span>
+          <span class="pill gain num">{{ '%.0f' % s.score }} pts</span>
+        </div>
+        <ul class="reasons">{% for w in s.why %}<li>{{ w }}.</li>{% endfor %}</ul>
+      </label>
+    {% endfor %}
+    <p class="tag">A explicação é escrita pelo código a partir dos números. Uma IA poderá redigi-la no futuro, mas nunca decide nem opera.</p>
+  </div>
+  <div class="card stack">
+    <div class="field"><label for="capital">{{ 'Capital do bot na Testnet (USDT fictícios)' if mode == 'testnet' else 'Capital virtual do bot (USDT)' }}</label>
+      <input id="capital" name="capital" inputmode="decimal" value="{{ capital }}" required>
+      <small>Sugestão: metade do trading teórico do teu portefólio (≈15% do total). É dinheiro fictício: não vende nada da tua conta.</small></div>
+  </div>
+  <div class="card"><label style="cursor:pointer"><input type="checkbox" name="never_below_cost" value="1">
+    <b>Nunca vender abaixo do custo</b> (opcional, desligada por defeito). Se o stop-loss disparar ou pararem o bot com prejuízo, a moeda fica guardada em vez de ser vendida; o bot pausa e espera.</label></div>
+  {% if mode == 'testnet' %}<div class="card"><label style="cursor:pointer"><input type="checkbox" name="twin" value="1" checked>
+    Criar também um bot gémeo em <b>simulação</b> no mesmo par, com as mesmas velas da Testnet, para comparar durante os 7 dias.</label></div>{% endif %}
+  <div class="row"><button class="btn pri">Ver a grelha</button>
+    <a class="btn" href="{{ url_for('bot_new', atualizar=1, modo=mode) }}">Atualizar sugestões</a></div>
+</form>
+{% endif %}
+{% endblock %}

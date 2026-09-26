@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Portefólio · Central de Bots{% endblock %}
+
+{% macro pill(sev) %}<span class="pill {{ 'loss' if sev == 'alto' else 'warn' if sev == 'atenção' else 'gain' }}">{{ sev }}</span>{% endmacro %}
+
+{% block body %}
+<h2>Portefólio</h2>
+<p class="sub">Dados reais da tua conta Binance, só leitura. Esta página não consegue comprar, vender nem levantar nada.</p>
+
+{% if result.state == 'no_key' %}
+  <div class="card">
+    <h3>Ainda sem ligação</h3>
+    <p>Liga uma chave de API da Binance <b>só de leitura</b> para veres aqui as tuas moedas e receberes alertas de risco.</p>
+    <a class="btn pri" href="{{ url_for('portfolio_key') }}">Ligar chave da Binance</a>
+  </div>
+{% else %}
+  {% if result.state == 'error' %}
+    <p class="flash error" role="alert">Sem ligação: dados indisponíveis. {{ result.reason }}
+      {% if snap %}Os valores abaixo são da última leitura boa ({{ snap.ts[:16].replace('T', ' ') }} UTC) e estão <b>desatualizados</b>.{% endif %}</p>
+  {% endif %}
+  {% if snap %}
+  {% set c = view.cards %}
+  <div class="cards">
+    <div class="card"><h3>Valor total {% if result.state == 'error' %}<span class="pill loss">antigo</span>{% endif %}</h3>
+      <div class="big num">{{ c.total | money(cur) }}</div>
+      <p class="tag">Lido às {{ snap.ts[11:16] }} UTC</p></div>
+    <div class="card"><h3>Variação 24 h</h3>
+      {% if c.change24 is not none %}<div class="big num {{ 'up' if c.change24 >= 0 else 'down' }}">{{ '▲' if c.change24 >= 0 else '▼' }} {{ '%+.1f' % c.change24 }}%</div>{% else %}<div class="big">-</div>{% endif %}
+      <p class="tag">do total, ponderada</p></div>
+    <div class="card"><h3>Lucro/prejuízo</h3>
+      {% if c.pnl_total is not none %}<div class="big num {{ 'up' if c.pnl_total >= 0 else 'down' }}">{{ '▲' if c.pnl_total >= 0 else '▼' }} {{ c.pnl_total | signed }}</div>
+        <p class="tag">{{ c.pnl_coins }} moeda(s) com custo médio</p>
+      {% else %}<div class="big">-</div><p class="tag">sem custo médio definido</p>{% endif %}</div>
+    <div class="card"><h3>Stablecoins / Earn</h3>
+      <div class="big num" style="font-size:24px">{{ '%.0f' % c.stable_pct }}% / {{ '%.0f' % c.earn_pct }}%</div>
+      <p class="tag">{{ c.alerts }} alerta(s) de risco</p></div>
+  </div>
+
+  <div class="card toolbar">
+    <div class="row">
+      <span class="tag">Ordenar:</span>
+      {% for k, (label, _) in sorts.items() %}<a class="chip" {% if k == sort %}aria-current="true"{% endif %} href="{{ url_for('portfolio_page', ordem=k, filtro=flt, po=(1 if show_dust else None)) }}">{{ label }}</a>{% endfor %}
+    </div>
+    <div class="row">
+      <span class="tag">Filtrar:</span>
+      {% for k, label in filters.items() %}<a class="chip" {% if k == flt %}aria-current="true"{% endif %} href="{{ url_for('portfolio_page', ordem=sort, filtro=k, po=(1 if show_dust else None)) }}">{{ label }}</a>{% endfor %}
+      <a class="chip" href="{{ url_for('portfolio_page', ordem=sort, filtro=flt, po=(0 if show_dust else 1)) }}">{{ 'Esconder poeira' if show_dust else 'Mostrar poeira' }}</a>
+      <form method="post" action="{{ url_for('portfolio_refresh') }}" style="margin-left:auto"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small">Atualizar agora</button></form>
+    </div>
+  </div>
+
+  {% if risks %}
+  <p class="flash warnbar">{{ risks | length }} alerta(s) de risco. Cada um aparece como selo na moeda em causa. <a href="{{ url_for('alerts_page') }}">Ver detalhes</a></p>
+  {% endif %}
+
+  {% for sec in view.sections %}
+  <details class="card section" id="sec-{{ sec.id }}" {% if not sec.hidden and sec.id not in ('poeira', 'sem_preco') %}open{% endif %}>
+    <summary><b>{{ sec.title }}</b> <span class="tag">{{ sec.rows | length }} · {{ sec.value | money(cur) if sec.value is not none else '' }}</span></summary>
+    {% if sec.id == 'sem_preco' %}<p class="tag">Sem par em USDT na Binance: ficam fora do total e da análise, nunca estimados.</p>{% endif %}
+    {% if sec.hidden %}
+      <p class="tag">Escondida. <a href="{{ url_for('portfolio_page', ordem=sort, filtro=flt, po=1) }}">Mostrar</a>. Conta para o total.</p>
+    {% else %}
+    <div class="tablewrap">
+    <table class="coins">
+      <thead><tr><th>Moeda</th><th class="r">Quantidade</th><th class="r">Valor ({{ cur }})</th><th class="r">Peso</th><th class="r">24 h</th><th class="r">Lucro/prejuízo</th></tr></thead>
+      <tbody>
+      {% for h in sec.rows %}
+        <tr id="coin-{{ h.coin }}">
+          <td data-label="Moeda"><b>{{ h.coin }}</b>{% if h.stable %} <span class="tag">stable</span>{% endif %}
+            <div class="badges">{% for b in h.badges %}<span class="pill {{ 'loss' if b.severity == 'alto' else 'warn' if b.severity == 'atenção' else 'gain' }}">{{ b.label }}</span>{% endfor %}</div></td>
+          <td data-label="Quantidade" class="r num">{{ '%.8g' % h.qty }}{% if h.earn %}<br><span class="tag">{{ '%.8g' % h.earn }} no Earn</span>{% endif %}{% if h.locked and not h.earn %}<br><span class="tag">{{ '%.8g' % h.locked }} em ordens</span>{% endif %}</td>
+          <td data-label="Valor" class="r num">{% if h.priced %}{{ h.shown | price }}{% else %}sem preço{% endif %}</td>
+          <td data-label="Peso" class="r num">{% if h.priced %}{{ '%.1f' % h.weight }}%{% else %}-{% endif %}</td>
+          <td data-label="24 h" class="r num">{% if h.change24 is defined and h.change24 is not none %}{{ '%+.1f' % h.change24 }}%{% else %}-{% endif %}</td>
+          <td data-label="Lucro/prejuízo" class="r num">
+            {% if h.pnl_shown is not none %}<span class="{{ 'up' if h.pnl_shown >= 0 else 'down' }}">{{ '▲' if h.pnl_shown >= 0 else '▼' }} {{ h.pnl_shown | signed }} ({{ '%+.1f' % h.pnl_pct }}%)</span><br><span class="tag">custo {{ '%g' % h.cost }} USDT</span>
+            {% elif h.cost %}<span class="tag">custo {{ '%g' % h.cost }}</span>{% else %}<span class="tag">sem custo</span>{% endif %}</td>
+        </tr>
+        {% if h.warning %}<tr class="warnrow"><td colspan="6"><span class="pill loss">▼ aviso</span> {{ h.warning }} É uma estimativa.</td></tr>{% endif %}
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% endif %}
+  </details>
+  {% endfor %}
+
+  <div class="card" id="custo">
+    <h3>Custo médio de compra</h3>
+    <p class="tag">A Binance não fornece o preço a que compraste. Escreve-o aqui (em USDT) para veres o lucro ou prejuízo de cada moeda.</p>
+    <form method="post" action="{{ url_for('cost_basis_edit') }}" class="row" style="margin-top:8px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input name="coin" placeholder="Moeda (ex.: ADA)" aria-label="Moeda" style="max-width:180px" required>
+      <input name="price" inputmode="decimal" placeholder="Preço médio USDT (ex.: 0,75)" aria-label="Preço médio em USDT" style="max-width:240px" required>
+      <button class="btn pri">Guardar custo</button>
+    </form>
+    {% if costs %}
+    <table style="margin-top:12px"><tbody>
+      {% for coin, v in costs.items() %}
+        <tr><td><b>{{ coin }}</b></td><td class="num">{{ '%g' % v.avg }} USDT</td><td class="tag">alterado {{ v.ts[:10] }}</td>
+          <td class="r"><form method="post" action="{{ url_for('cost_basis_edit') }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="coin" value="{{ coin }}"><input type="hidden" name="action" value="delete"><button class="btn small">Remover</button></form></td></tr>
+      {% endfor %}
+    </tbody></table>
+    {% endif %}
+  </div>
+  {% endif %}
+  <p class="tag"><a href="{{ url_for('portfolio_key') }}">Gerir a chave da Binance</a></p>
+{% endif %}
+<script nonce="{{ csp_nonce }}">
+if (window.matchMedia('(max-width: 760px)').matches) {
+  document.querySelectorAll('details.section').forEach(function (d) { d.open = false; });
+}
+</script>
+{% endblock %}

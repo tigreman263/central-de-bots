@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Bots · Central de Bots{% endblock %}
+{% block body %}
+<h2>Bots</h2>
+<p class="sub">Bots de grelha em <b>simulação</b> (preços reais, dinheiro virtual) ou na <b>Testnet</b> (ordens reais numa conta fictícia). Nenhum toca na tua conta real.
+  <a href="{{ url_for('bot_links') }}">Ligações: chaves da Testnet e Telegram</a></p>
+
+{% if not runner.alive %}
+  <p class="flash error" role="alert">{{ runner.text }} Os bots só avançam com o corredor a correr (<code>python run_bots.py</code>).</p>
+{% else %}
+  <p class="tag">Corredor ativo. {{ runner.text }}</p>
+{% endif %}
+
+<div class="cards">
+  {% for it in rows %}
+  {% set r = it.row %}{% set st = it.stats %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <b>Grelha {{ r.pair }}</b> <span class="pill {{ 'warn' if r.mode == 'testnet' else '' }}">{{ 'TESTNET' if r.mode == 'testnet' else 'SIMULAÇÃO' }}</span>
+      <span class="pill {{ states[r.status][1] }}">{{ states[r.status][0] }}</span>
+    </div>
+    {% if r.reason %}<p class="tag">{{ r.reason }}</p>{% endif %}
+    {% if r.warning %}<p class="tag" style="color:var(--loss)">{{ r.warning }}</p>{% endif %}
+    {% if st %}
+      <div class="big num {{ 'up' if st.net_profit >= 0 else 'down' }}" style="font-size:24px">{{ '▲' if st.net_profit >= 0 else '▼' }} {{ st.net_profit | signed }} USDT</div>
+      <p class="tag">lucro líquido de comissões · {{ '%+.2f' % st.net_pct }}% · {{ st.cycles }} ciclos · {{ st.open_orders }} ordens abertas</p>
+    {% else %}<p class="tag">Ainda sem dados: o corredor monta a grelha no primeiro minuto.</p>{% endif %}
+    <p class="tag num">Capital {{ 'na Testnet' if r.mode == 'testnet' else 'virtual' }}: {{ '%g' % r.capital_usdt }} USDT{% if r.twin_of %} · gémeo do bot {{ r.twin_of }}{% endif %}</p>
+    <a class="btn small" href="{{ url_for('bot_detail', bot_id=r.id) }}">Ver detalhe</a>
+  </div>
+  {% endfor %}
+  <div class="card" style="display:flex;flex-direction:column;gap:8px;justify-content:center;border-style:dashed">
+    <b>Criar bot</b><span class="tag">Escolhes o modo, um par sugerido, vês a grelha e aprovas.</span>
+    <a class="btn pri" href="{{ url_for('bot_new') }}">Criar bot (simulação)</a>
+    <a class="btn" href="{{ url_for('bot_new', modo='testnet') }}">Criar bot na Testnet</a>
+  </div>
+</div>
+{% endblock %}

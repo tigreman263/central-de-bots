@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block body %}
+<h2>{% if stopped %}Sistema parado{% else %}Tudo normal{% endif %}</h2>
+<p class="sub">{% if stopped %}Modo seguro ativo. Nada corre até reativares.{% else %}Bots de grelha em simulação: vê a aba Bots.{% endif %}</p>
+
+<div class="card">
+  <h3>{{ capital_label }}</h3>
+  <div class="big num">{{ total | money(cur) }}</div>
+  <p class="tag">{% if capital_label.startswith("Portef") %}Valor lido da tua conta Binance (só leitura).{% else %}Define o montante na Configuração, ou liga a chave da Binance no Portefólio.{% endif %}</p>
+</div>
+
+<div class="card">
+  <h3>Divisão do saldo</h3>
+  <div class="bar" role="img" aria-label="{% for b in buckets %}{{ b.label }} {{ '%g' % b.pct }}%{% if not loop.last %}, {% endif %}{% endfor %}">
+    {% for b in buckets %}<i style="width:{{ b.pct }}%;background:var(--{{ b.color }})"></i>{% endfor %}
+  </div>
+  <div class="legend">
+    {% for b in buckets %}
+      <span><span class="sw" style="background:var(--{{ b.color }})"></span>{{ b.label }} <b>{{ '%g' % b.pct }}%</b> · <span class="num">{{ b.value | money(cur) }}</span></span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>Preços reais na Binance</h3>
+  {% if mkt.ok %}
+    <table>
+      <thead><tr><th>Moeda</th><th class="r">USDT</th><th class="r">EUR</th></tr></thead>
+      <tbody>
+      {% for p in prices %}
+        <tr><td>{{ p.name }}</td><td class="r num">{{ p.usdt | price }}</td><td class="r num">{{ p.eur | price }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="tag">1 EUR = {{ '%.4f' % (1 / mkt.eur_per_usdt) }} USDT · USD tratado como igual a USDT</p>
+  {% else %}
+    <p class="flash error">Sem ligação à Binance neste momento. Não mostro preços inventados; tenta recarregar daqui a pouco.</p>
+  {% endif %}
+</div>
+{% endblock %}

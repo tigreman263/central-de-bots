@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Confirmar alterações · Central de Bots{% endblock %}
+{% block body %}
+<h2>Confirmar alterações</h2>
+<p class="sub">Isto é o que vai mudar. Nada é guardado até confirmares.</p>
+<div class="card">
+  <table>
+    <thead><tr><th>O quê</th><th>Antes</th><th>Depois</th></tr></thead>
+    <tbody>
+    {% for label, before, after in changes %}
+      <tr><td>{{ label }}</td><td>{{ before }}</td><td><b>{{ after }}</b></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<form method="post" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="step" value="save">
+  {% for k, v in new.items() if k != 'exclusions' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  {% for c in new.exclusions.split(',') if c %}<input type="hidden" name="exclusions" value="{{ c }}">{% endfor %}
+  <a class="btn pri" href="{{ url_for('config') }}">Cancelar</a>
+  <button class="btn">Guardar configuração</button>
+</form>
+{% endblock %}

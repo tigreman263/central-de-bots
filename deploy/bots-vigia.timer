@@ -1,0 +1,9 @@
+[Unit]
+Description=Vigia do corredor, de minuto a minuto
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

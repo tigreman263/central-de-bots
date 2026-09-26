@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Staking · Central de Bots{% endblock %}
+{% block body %}
+<h2>Staking</h2>
+<p class="sub">Binance Simple Earn, só leitura. O painel sugere e explica; quem subscreve és tu, na Binance.</p>
+
+{% if result.state == 'no_key' %}
+  <div class="card"><p>Liga primeiro a chave da Binance (só leitura).</p><a class="btn pri" href="{{ url_for('portfolio_key') }}">Ligar chave</a></div>
+{% else %}
+  {% if result.state == 'error' %}
+    <p class="flash error" role="alert">Sem ligação ao Earn: dados indisponíveis. {{ result.reason }}
+      {% if result.snap %}Mostro a última leitura boa ({{ result.snap.ts[:16].replace('T', ' ') }} UTC), <b>desatualizada</b>.{% endif %}</p>
+  {% endif %}
+  {% if summary %}
+  <div class="cards">
+    <div class="card"><h3>Flexível</h3><div class="big num" style="font-size:24px">{{ (summary.flex_value * rate) | money(cur) if rate else '-' }}</div></div>
+    <div class="card"><h3>Bloqueado</h3><div class="big num" style="font-size:24px">{{ (summary.locked_value * rate) | money(cur) if rate else '-' }}</div></div>
+    <div class="card"><h3>Rendimento anual estimado</h3><div class="big num" style="font-size:24px">{{ (summary.yearly_usdt * rate) | money(cur) if rate else '-' }}</div>
+      <p class="tag">Estimativa com o APR de hoje. Não é garantido.</p></div>
+  </div>
+
+  <div class="card">
+    <h3>Sugestões para o teu saldo parado</h3>
+    {% if sugs %}
+    <div class="stack">
+      {% for s in sugs %}
+      <div class="sug">
+        <div class="row" style="justify-content:space-between">
+          <b>{{ s.coin }} · {{ s.kind }}{% if s.duration %} · {{ s.duration }} dias{% endif %}</b>
+          <span class="pill gain num">{{ '%.2f' % s.apr }}% APR</span>
+        </div>
+        <ul class="reasons">{% for r in s.reasons %}<li>{{ r }}.</li>{% endfor %}</ul>
+        <p class="tag num">Rendimento anual estimado: ~{{ '%.2f' % s.yearly_usdt }} USDT · Pontuação {{ '%.1f' % s.score }}</p>
+        <p class="tag">{{ s.howto }} A decisão é tua.</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <p class="tag">Sem sugestões agora: não há saldo parado suficiente com produto disponível.</p>
+    {% endif %}
+    <p class="tag" style="margin-top:12px">Avisos: o APR promocional acaba, o APR não é garantido e o preço da moeda pode cair mais do que o rendimento. Bloqueado só se resgata no fim do prazo. A cobertura depende do que a Binance lista na API.</p>
+  </div>
+
+  <details class="card section" open>
+    <summary><b>Flexível</b> <span class="tag">{{ summary.flexible | length }} posições</span></summary>
+    <div class="tablewrap"><table class="coins">
+      <thead><tr><th>Moeda</th><th class="r">Montante</th><th class="r">Valor ({{ cur }})</th><th class="r">APR</th><th class="r">Ganho anual</th></tr></thead>
+      <tbody>{% for p in summary.flexible %}
+        <tr><td data-label="Moeda"><b>{{ p.coin }}</b></td><td data-label="Montante" class="r num">{{ '%.8g' % p.amount }}</td>
+          <td data-label="Valor" class="r num">{{ (p.value_usdt * rate) | price if (p.value_usdt is not none and rate) else '-' }}</td>
+          <td data-label="APR" class="r num">{{ '%.2f' % p.apr }}%</td>
+          <td data-label="Ganho anual" class="r num">{{ (p.yearly_usdt * rate) | price if (p.yearly_usdt is not none and rate) else '-' }}</td></tr>
+      {% endfor %}</tbody></table></div>
+  </details>
+
+  <details class="card section" open>
+    <summary><b>Bloqueado</b> <span class="tag">{{ summary.locked | length }} posições</span></summary>
+    <div class="tablewrap"><table class="coins">
+      <thead><tr><th>Moeda</th><th class="r">Montante</th><th class="r">Valor ({{ cur }})</th><th class="r">APR</th><th class="r">Prazo</th><th class="r">Fim</th></tr></thead>
+      <tbody>{% for p in summary.locked %}
+        <tr><td data-label="Moeda"><b>{{ p.coin }}</b>{% if p.auto %} <span class="tag">renova</span>{% endif %}</td>
+          <td data-label="Montante" class="r num">{{ '%.8g' % p.amount }}</td>
+          <td data-label="Valor" class="r num">{{ (p.value_usdt * rate) | price if (p.value_usdt is not none and rate) else '-' }}</td>
+          <td data-label="APR" class="r num">{{ '%.2f' % p.apr }}%</td>
+          <td data-label="Prazo" class="r num">{{ p.duration }} dias</td>
+          <td data-label="Fim" class="r num">{{ p.redeem_date or '-' }}</td></tr>
+      {% endfor %}</tbody></table></div>
+  </details>
+  {% else %}
+    <div class="card"><p class="tag">Ainda sem dados de Earn. Abre primeiro o Portefólio e depois atualiza.</p></div>
+  {% endif %}
+  <form method="post" action="{{ url_for('staking_refresh') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small">Atualizar agora</button></form>
+{% endif %}
+{% endblock %}

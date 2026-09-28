@@ -25,7 +25,7 @@
 </header>
 <div class="shell">
   <nav aria-label="Secções">
-    {% for ep, label in [('inicio','Início'),('portfolio_page','Portefólio'),('staking_page','Staking'),('ai_page','Ai'),('bots','Bots'),('laboratorio','Laboratório'),('reserva','Reserva'),('estatisticas','Estatísticas'),('alerts_page','Alertas'),('config','Configuração')] %}
+    {% for ep, label in [('inicio','Início'),('portfolio_page','Portefólio'),('staking_page','Staking'),('ai_page','Ai'),('bots','Bots'),('reserva','Reserva'),('estatisticas','Estatísticas'),('alerts_page','Alertas'),('config','Configuração')] %}
       <a href="{{ url_for(ep) }}" {% if endpoint == ep or (ep == 'portfolio_page' and endpoint == 'portfolio_key') %}aria-current="page"{% endif %}>{{ label }}{% if alert_dot and ep in ('portfolio_page', 'alerts_page') %}<span class="dot {{ alert_dot }}" title="Alertas por ver"></span><span class="sr-only"> (alertas por ver)</span>{% endif %}</a>
     {% endfor %}
     <form method="post" action="{{ url_for('logout') }}" class="logout">
@@ -41,7 +41,7 @@
 </div>
 <div class="mobnav" role="navigation" aria-label="Menu">
   {% for ep, label in [('inicio','Início'),('portfolio_page','Portefólio'),('bots','Bots'),('reserva','Reserva'),('more','Mais')] %}
-    <a href="{{ url_for(ep) }}" {% if endpoint == ep or (ep == 'more' and endpoint in ('alerts_page','config','estatisticas','staking_page','ai_page','laboratorio')) %}aria-current="page"{% endif %}>{{ label }}{% if alert_dot and ep in ('portfolio_page', 'more') %}<span class="dot {{ alert_dot }}"></span>{% endif %}</a>
+    <a href="{{ url_for(ep) }}" {% if endpoint == ep or (ep == 'more' and endpoint in ('alerts_page','config','estatisticas','staking_page','ai_page')) %}aria-current="page"{% endif %}>{{ label }}{% if alert_dot and ep in ('portfolio_page', 'more') %}<span class="dot {{ alert_dot }}"></span>{% endif %}</a>
   {% endfor %}
 </div>
 {% else %}

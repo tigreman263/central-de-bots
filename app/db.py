@@ -1,5 +1,4 @@
 """Base de dados local (SQLite): configuração, estado, palavra-passe e registo de ações."""
-import math
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -104,16 +103,3 @@ def recent_log(conn, limit=50):
     return conn.execute(
         "SELECT ts, action, detail FROM audit ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
-
-
-def parse_decimal_pt(raw):
-    """Aceita '0,75' ou '0.75' (vírgula ou ponto). Devolve float finito, ou None se vazio/inválido/nan/inf.
-
-    Usado em qualquer sítio do formulário que aceite um número escrito à mão (capital, preço, percentagens):
-    um só ponto de verdade para que "inf"/"nan" nunca voltem a passar num campo por engano de digitação.
-    """
-    try:
-        v = float((raw or "").replace(",", ".").strip())
-    except ValueError:
-        return None
-    return v if math.isfinite(v) else None

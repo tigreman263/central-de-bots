@@ -3,6 +3,7 @@
 Só modo simulação. Nada aqui envia ordens.
 """
 import json
+import math
 import os
 import secrets
 import threading
@@ -15,7 +16,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, r
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import alerts, analysis, balance, botstore, capacity, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, readiness, reserve, risk, scenario, staking, validation
+from . import alerts, analysis, balance, botstore, capacity, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, readiness, reserve, risk, staking, validation
 from . import grid as G
 from . import recommendations as rec
 from .log import log
@@ -53,7 +54,6 @@ def create_app(test_config=None):
     _c = db.connect(app.config["DB_PATH"])
     alerts.init(_c)
     botstore.init(_c)
-    scenario.init(_c)
     _c.close()
 
     key_file = data_dir / "secret_key"
@@ -169,8 +169,6 @@ def create_app(test_config=None):
 
     @app.template_filter("price")
     def price(value):
-        if value is None:
-            return "sem preço"
         return f"{value:,.2f}".replace(",", " ").replace(".", ",")
 
     def get_market():
@@ -1035,7 +1033,12 @@ def create_app(test_config=None):
             pair = request.form.get("pair", "")
             twin = request.form.get("twin") == "1"                     # duplicado no outro tipo (sim <-> Testnet)
             never_below = request.form.get("never_below_cost") == "1"
-            capital = db.parse_decimal_pt(request.form.get("capital")) or 0.0
+            try:
+                capital = float(request.form.get("capital", "").replace(",", "."))
+            except ValueError:
+                capital = 0.0
+            if not math.isfinite(capital):        # float("nan")/float("inf") passam no parse sem levantar ValueError
+                capital = 0.0
             chosen = next((s for s in cache["data"] if s["pair"] == pair), None)
             if not chosen or capital <= 0:
                 flash("Escolhe um dos pares sugeridos e indica um capital maior que zero.", "error")
@@ -1104,12 +1107,9 @@ def create_app(test_config=None):
             return redirect(url_for("bot_detail", bot_id=bot_id))
         eng = botstore.load_engine(conn(), bot_id)
         if request.method == "POST":
-            if botstore.delete(conn(), bot_id):
-                db.log(conn(), "Bot apagado", f"Bot {bot_id} {row['pair']} ({row['mode']})")
-                flash(f"Bot {row['pair']} apagado. Os dados dele deixaram de estar guardados.", "ok")
-            else:                              # deixou de poder apagar-se entre mostrar a confirmação e submeter
-                flash("Já não dá para apagar este bot (deixou de estar parado ou ficou com algo por fechar). "
-                      "Verifica o estado dele.", "error")
+            botstore.delete(conn(), bot_id)
+            db.log(conn(), "Bot apagado", f"Bot {bot_id} {row['pair']} ({row['mode']})")
+            flash(f"Bot {row['pair']} apagado. Os dados dele deixaram de estar guardados.", "ok")
             return redirect(url_for("bots", aba="testnet" if row["mode"] == "testnet" else "simulacao"))
         return render_template("bot_delete_confirm.html", bots=[(row, eng)], aba="", back=url_for("bot_detail", bot_id=bot_id))
 
@@ -1120,13 +1120,11 @@ def create_app(test_config=None):
         rows = [r for r in botstore.deletable(conn()) if mode is None or r["mode"] == mode]
         back = url_for("bots", aba=aba) if aba in BOT_TABS else url_for("bots")
         if request.method == "POST":
-            done = [r for r in rows if botstore.delete(conn(), r["id"])]
-            db.log(conn(), "Bots parados apagados", ", ".join(f"{r['id']} {r['pair']}" for r in done) or "nenhum")
-            n = len(done)
-            msg = f"{n} bot{'' if n == 1 else 's'} parado{'' if n == 1 else 's'} apagado{'' if n == 1 else 's'}."
-            if n < len(rows):
-                msg += f" {len(rows) - n} já não puderam ser apagados (deixaram de estar parados entretanto)."
-            flash(msg, "ok" if n == len(rows) else "error")
+            for r in rows:
+                botstore.delete(conn(), r["id"])
+            db.log(conn(), "Bots parados apagados", ", ".join(f"{r['id']} {r['pair']}" for r in rows) or "nenhum")
+            flash(f"{len(rows)} bot{'' if len(rows) == 1 else 's'} parado{'' if len(rows) == 1 else 's'} apagado"
+                  f"{'' if len(rows) == 1 else 's'}.", "ok")
             return redirect(back)
         if not rows:
             flash("Não há bots parados para apagar.", "ok")
@@ -1181,82 +1179,6 @@ def create_app(test_config=None):
         compare = [{"testnet": by_id[it["row"]["twin_of"]], "sim": it} for it in items
                    if it["row"]["twin_of"] and it["row"]["twin_of"] in by_id]
         return render_template("stats.html", items=items, rate=rate, runner=runner_state(), compare=compare)
-
-    # ---------- Laboratório de Cenários: testa um bot contra um percurso de mercado à tua escolha ----------
-    # à parte de propósito: fica em scenario_runs, nunca na tabela `bots` — um ensaio nunca conta para o portão
-    # da conta real, as estatísticas nem a capacidade do sistema.
-    def parse_script(form):
-        script = []
-        for tipo, forca, custom, dur, unidade in zip(
-                form.getlist("phase_tipo"), form.getlist("phase_forca"), form.getlist("phase_custom"),
-                form.getlist("phase_dur"), form.getlist("phase_unidade")):
-            if tipo not in scenario.DIR or unidade not in scenario.UNIT_TO_MIN:
-                continue
-            dur_v = db.parse_decimal_pt(dur) or 1.0
-            if dur_v <= 0:
-                continue
-            custom_v = db.parse_decimal_pt(custom) if custom else None
-            script.append({"tipo": tipo, "forca": forca if forca in scenario.PRESETS else "moderada",
-                           "custom": custom_v, "dur": dur_v, "unidade": unidade})
-        return script
-
-    @app.route("/laboratorio", methods=["GET", "POST"])
-    def laboratorio():
-        if request.method == "POST":
-            src = request.form.get("bot_src", "novo")
-            if src == "existente":
-                row = botstore.get(conn(), request.form.get("bot_id", type=int) or -1)
-                if row is None:
-                    flash("Esse bot já não existe. Escolhe outro, ou usa uma configuração nova.", "error")
-                    return redirect(url_for("laboratorio"))
-                eng = botstore.load_engine(conn(), row["id"])
-                pair, capital, rules, params = eng.pair, eng.capital, eng.rules, eng.p
-            else:
-                pair = request.form.get("par", "BTCUSDT").strip().upper()
-                capital = db.parse_decimal_pt(request.form.get("capital")) or 0.0
-                if not pair.isalnum() or capital <= 0:
-                    flash("Escolhe um par e indica um capital maior que zero.", "error")
-                    return redirect(url_for("laboratorio"))
-                params = bot_params()
-                try:
-                    rules = make_reader("", "").symbol_rules(pair)
-                except BinanceError as exc:
-                    flash(f"Não consegui ler as regras deste par na Binance ({exc}). Tenta de novo daqui a pouco.", "error")
-                    return redirect(url_for("laboratorio"))
-                if rules.get("status") != "TRADING":
-                    flash(f"O par {pair} não está em negociação normal na Binance.", "error")
-                    return redirect(url_for("laboratorio"))
-            script = parse_script(request.form)
-            if not script:
-                flash("Adiciona pelo menos uma fase válida ao guião.", "error")
-                return redirect(url_for("laboratorio"))
-            try:
-                start_price = float(make_reader("", "").ticker24(pair)["lastPrice"])
-            except BinanceError as exc:
-                flash(f"Não consegui ler o preço atual de {pair} ({exc}). Tenta de novo daqui a pouco.", "error")
-                return redirect(url_for("laboratorio"))
-            no_seed = request.form.get("no_seed") == "1"
-            seed = "" if no_seed else (request.form.get("seed", "").strip() or scenario.new_seed())
-            candles, bands = scenario.generate_candles(script, seed or None, start_price, now_ms())
-            result = scenario.run_engine(pair, capital, rules, params, candles)
-            name = request.form.get("name", "").strip() or f"{pair} · {len(script)} fase(s)"
-            run_id = scenario.save(conn(), name, pair, capital, rules, params, script,
-                                   seed or "sem seed fixa", bands, result)
-            db.log(conn(), "Ensaio de cenário criado", f"{name}: {result['final_pct']:+.2f}%")
-            return redirect(url_for("laboratorio", ver=run_id))
-        view_id = request.args.get("ver", type=int)
-        viewing = scenario.get(conn(), view_id) if view_id else None
-        if viewing:
-            viewing["chart"] = chart_path([(e["ts"], e["equity"]) for e in viewing["result"]["equity"]])
-        return render_template("laboratorio.html", bots=botstore.all_bots(conn()), runs=scenario.list_runs(conn()),
-                               viewing=viewing, default_capital=default_capital(),
-                               presets=scenario.PRESETS, seed_placeholder=scenario.new_seed())
-
-    @app.post("/laboratorio/<int:run_id>/apagar")
-    def laboratorio_delete(run_id):
-        scenario.delete(conn(), run_id)
-        flash("Ensaio apagado.", "ok")
-        return redirect(url_for("laboratorio"))
 
     def chart_path(curve, w=560, h=180):
         if len(curve) < 2:

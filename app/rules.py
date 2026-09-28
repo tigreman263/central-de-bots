@@ -1,5 +1,4 @@
 """Validação da configuração: devolve valores limpos e erros em português simples."""
-from . import db
 
 EXCLUSION_CATEGORIES = {
     "memecoins": "Memecoins",
@@ -42,8 +41,10 @@ LABELS["risk_young_info"] = "Moeda recente: info (dias)"
 
 
 def _number(form, key, low, high, errors):
-    value = db.parse_decimal_pt(form.get(key))
-    if value is None:
+    raw = (form.get(key) or "").replace(",", ".").strip()
+    try:
+        value = float(raw)
+    except ValueError:
         errors.append(f"{LABELS[key]}: escreve um número.")
         return None
     if not low <= value <= high:

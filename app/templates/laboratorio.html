@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}Laboratório · Malha{% endblock %}
+{% block body %}
+<style>
+/* só desta página: app/static/app.css não se mexe */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--surface);color:var(--muted);font:inherit;font-weight:600;padding:0 16px;min-height:40px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+button.chip{font:inherit;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.chip.tipo-alta[aria-pressed=true]{background:var(--gain-soft);color:var(--gain);border-color:var(--gain)}
+.chip.tipo-baixa[aria-pressed=true]{background:var(--loss-soft);color:var(--loss);border-color:var(--loss)}
+.iconbtn{border:0;background:none;color:var(--muted);cursor:pointer;min-height:36px;min-width:36px;border-radius:8px;font-size:16px}
+.iconbtn:hover{background:var(--loss-soft);color:var(--loss)}
+.evlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.evlist li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.evlist li:last-child{border:0}
+.evlist .t{color:var(--muted);font-size:12px;white-space:nowrap}
+</style>
+<h2>Laboratório de Cenários</h2>
+<p class="sub">Cria um percurso de mercado à tua escolha — alta, baixa ou lateral, em qualquer ordem — e vê como um
+  bot reage e se as proteções de risco disparam, sem tocar na Binance nem na Testnet. Corre o motor real do bot
+  sobre velas sintéticas; nunca conta para o portão da conta real, as estatísticas nem a capacidade do sistema.</p>
+
+<form method="post" action="{{ url_for('laboratorio') }}" id="labForm">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="bot_src" id="botSrc" value="existente">
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin:0">Bot a testar</h3>
+      <div class="seg" role="group" aria-label="Origem do bot">
+        <button type="button" id="btnSrcExistente" aria-pressed="true">Bot existente</button>
+        <button type="button" id="btnSrcNovo" aria-pressed="false">Configuração nova</button>
+      </div>
+    </div>
+
+    <div id="boxExistente" class="field">
+      <label for="bot_id">Copiar a configuração de</label>
+      {% if bots %}
+      <select name="bot_id" id="bot_id">
+        {% for b in bots %}<option value="{{ b.id }}">{{ b.pair }} · {{ 'Testnet' if b.mode == 'testnet' else 'Simulação' }} · {{ b.capital_usdt|price }} USDT</option>{% endfor %}
+      </select>
+      <small class="tag">Usa o par, o capital e as regras da grelha exatamente como estão nesse bot hoje; não altera nem afeta o bot original.</small>
+      {% else %}
+      <p class="tag">Ainda não tens bots criados. Usa "Configuração nova" abaixo.</p>
+      {% endif %}
+    </div>
+
+    <div id="boxNovo" class="field" hidden>
+      <label for="par">Par</label>
+      <input type="text" name="par" id="par" value="BTCUSDT" placeholder="ex.: BTCUSDT" autocomplete="off">
+      <div class="row" style="margin-top:8px">
+        <div class="field" style="max-width:160px">
+          <label for="capital">Capital</label>
+          <input type="text" name="capital" id="capital" value="{{ default_capital }}">
+        </div>
+        <small class="tag" style="align-self:center">USDT · usa as regras de grelha por defeito, tal como ao criar um bot novo</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:10px">Guião do cenário</h3>
+    <div class="stack" id="phases"></div>
+    <div class="row" style="margin-top:12px">
+      <button type="button" class="btn small" id="addPhase">+ Adicionar fase</button>
+      <span class="tag" id="scriptSummary"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:10px">Repetibilidade</h3>
+    <div class="row">
+      <div class="field" style="flex:1;min-width:180px">
+        <label for="seed">Seed do cenário</label>
+        <input type="text" name="seed" id="seed" value="{{ seed_placeholder }}" autocomplete="off">
+        <small class="tag">A mesma seed + o mesmo guião dão sempre as mesmas velas — útil para comparar duas versões do bot com o mesmo percurso de preço.</small>
+      </div>
+      <button type="button" class="btn small" id="randomSeed">🎲 Nova seed aleatória</button>
+    </div>
+    <label class="switch"><span>Sem seed fixa (cada corrida fica ligeiramente diferente)</span>
+      <input type="checkbox" name="no_seed" id="noSeed" value="1"></label>
+  </div>
+
+  <div class="row" style="margin-bottom:24px">
+    <input type="text" name="name" placeholder="Nome do ensaio (opcional)" style="max-width:280px">
+    <button type="submit" class="btn pri">▶ Correr o guião</button>
+  </div>
+</form>
+
+{% if viewing %}
+<h3 style="margin-bottom:10px">Resultado: {{ viewing.name }}</h3>
+<div class="cards">
+  <div class="card"><h3>Resultado simulado</h3><div class="big {{ 'up' if viewing.result.final_pct >= 0 else 'down' }}">{{ viewing.result.final_pct|signed }}%</div></div>
+  <div class="card"><h3>Maior queda (drawdown)</h3><div class="big down">−{{ "%.2f"|format(viewing.result.max_dd) }}%</div></div>
+  <div class="card"><h3>Proteções disparadas</h3><div class="big">{{ viewing.result.stop_events }}</div></div>
+  <div class="card"><h3>Ciclos da grelha</h3><div class="big">{{ viewing.result.cycles }}</div></div>
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:10px">Evolução do capital</h3>
+  {% if viewing.chart %}
+  <svg class="pchart" viewBox="0 0 {{ viewing.chart.w }} {{ viewing.chart.h }}" role="img" aria-label="Capital ao longo do cenário">
+    <polyline class="ch-price" points="{{ viewing.chart.line }}"></polyline>
+  </svg>
+  {% else %}
+  <p class="tag">Cenário demasiado curto para desenhar um gráfico.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3 style="margin-bottom:10px">Eventos do bot durante o cenário</h3>
+  {% if viewing.result.events %}
+  <ul class="evlist">
+    {% for e in viewing.result.events %}
+    <li><span>{{ e.detail }}</span><span class="t"><span class="pill {{ 'loss' if e.kind in ('error','blocked') else 'idle' }}">{{ e.kind }}</span> {{ (e.ts / 1000)|int|datefmt }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="tag">Sem eventos — o bot não pausou nem parou durante este cenário.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-bottom:10px">Ensaios guardados</h3>
+  {% if runs %}
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Cenário</th><th>Seed</th><th>Guião</th><th class="r">Resultado</th><th></th></tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td><a href="{{ url_for('laboratorio', ver=r.id) }}">{{ r.name }}</a></td>
+          <td class="num">{{ r.seed }}</td>
+          <td>{{ r.script|length }} fase{{ '' if r.script|length == 1 else 's' }}</td>
+          <td class="r"><span class="pill {{ 'gain' if r.final_pct >= 0 else 'loss' }}">{{ r.final_pct|signed }}%</span></td>
+          <td class="row" style="gap:6px;justify-content:flex-end">
+            <form method="post" action="{{ url_for('laboratorio_delete', run_id=r.id) }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="btn small danger">Apagar</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="tag">Ainda não correste nenhum ensaio.</p>
+  {% endif %}
+</div>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var TIPOS = [['alta', '▲ Alta'], ['lateral', '▬ Lateral'], ['baixa', '▼ Baixa']];
+  var FORCAS = {{ presets|tojson }};
+  var phases = [];
+  var nextId = 0;
+  var box = document.getElementById('phases');
+
+  function addPhase(tipo, forca, dur, unidade) {
+    phases.push({id: nextId++, tipo: tipo || 'alta', forca: forca || 'moderada', custom: null,
+                 dur: dur || 6, unidade: unidade || 'horas'});
+    render();
+  }
+  function removePhase(id) {
+    phases = phases.filter(function (p) { return p.id !== id; });
+    render();
+  }
+  function find(id) {
+    for (var i = 0; i < phases.length; i++) { if (phases[i].id === id) return phases[i]; }
+    return null;
+  }
+
+  function render() {
+    box.innerHTML = '';
+    phases.forEach(function (p, idx) {
+      var el = document.createElement('div');
+      el.className = 'sug';
+      var tiposHtml = TIPOS.map(function (t) {
+        return '<button type="button" class="chip tipo-' + t[0] + '" data-act="tipo" data-id="' + p.id + '" data-v="' + t[0] +
+               '" aria-pressed="' + (p.tipo === t[0]) + '">' + t[1] + '</button>';
+      }).join('');
+      var forcasHtml = Object.keys(FORCAS).map(function (f) {
+        return '<button type="button" class="chip" data-act="forca" data-id="' + p.id + '" data-v="' + f +
+               '" aria-pressed="' + (p.forca === f && p.custom === null) + '">' + f.charAt(0).toUpperCase() + f.slice(1) + '</button>';
+      }).join('') + '<button type="button" class="chip" data-act="custom-on" data-id="' + p.id +
+               '" aria-pressed="' + (p.custom !== null) + '">Personalizada</button>';
+      var customHtml = p.custom !== null
+        ? ' <input type="number" step="0.1" style="width:80px;display:inline-block" data-act="custom-val" data-id="' + p.id +
+          '" name="phase_custom" value="' + p.custom + '"> %/dia'
+        : '<input type="hidden" name="phase_custom" value="">';
+      el.innerHTML =
+        '<div class="row" style="justify-content:space-between;margin-bottom:8px">' +
+          '<strong>Fase ' + (idx + 1) + '</strong>' +
+          (phases.length > 1 ? '<button type="button" class="iconbtn" data-act="remove" data-id="' + p.id + '" aria-label="Remover fase">✕</button>' : '') +
+        '</div>' +
+        '<input type="hidden" name="phase_tipo" value="' + p.tipo + '">' +
+        '<input type="hidden" name="phase_forca" value="' + p.forca + '">' +
+        customHtml +
+        '<div class="row" style="margin-bottom:8px">' + tiposHtml + '</div>' +
+        '<div class="row" style="margin-bottom:8px">' + forcasHtml + '</div>' +
+        '<div class="row">' +
+          '<label style="font-weight:400;color:var(--muted)">Duração:</label>' +
+          '<input type="number" min="1" style="width:80px" name="phase_dur" data-act="dur" data-id="' + p.id + '" value="' + p.dur + '">' +
+          '<div class="seg">' +
+            ['minutos', 'horas', 'dias'].map(function (u) {
+              return '<button type="button" data-act="unidade" data-id="' + p.id + '" data-v="' + u +
+                     '" aria-pressed="' + (p.unidade === u) + '">' + u + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+        '<input type="hidden" name="phase_unidade" value="' + p.unidade + '">';
+      box.appendChild(el);
+    });
+    var totalMin = phases.reduce(function (s, p) {
+      var mult = p.unidade === 'dias' ? 1440 : p.unidade === 'horas' ? 60 : 1;
+      return s + p.dur * mult;
+    }, 0);
+    var label = totalMin < 60 ? Math.round(totalMin) + ' min' : totalMin < 2880 ? (totalMin / 60).toFixed(1) + ' h' : (totalMin / 1440).toFixed(1) + ' dias';
+    document.getElementById('scriptSummary').textContent = phases.length + ' fase' + (phases.length === 1 ? '' : 's') + ' · ~' + label + ' de mercado simulado';
+  }
+
+  box.addEventListener('click', function (ev) {
+    var el = ev.target.closest('[data-act]');
+    if (!el) return;
+    var id = parseInt(el.dataset.id, 10);
+    var p = find(id);
+    if (!p) return;
+    if (el.dataset.act === 'tipo') { p.tipo = el.dataset.v; render(); }
+    else if (el.dataset.act === 'forca') { p.forca = el.dataset.v; p.custom = null; render(); }
+    else if (el.dataset.act === 'custom-on') { p.custom = FORCAS[p.forca]; render(); }
+    else if (el.dataset.act === 'unidade') { p.unidade = el.dataset.v; render(); }
+    else if (el.dataset.act === 'remove') { removePhase(id); }
+  });
+  box.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (!el.dataset || !el.dataset.act) return;
+    var p = find(parseInt(el.dataset.id, 10));
+    if (!p) return;
+    if (el.dataset.act === 'dur') { p.dur = Math.max(1, parseFloat(el.value) || 1); }
+    else if (el.dataset.act === 'custom-val') { p.custom = parseFloat(el.value) || 0; }
+  });
+
+  document.getElementById('addPhase').addEventListener('click', function () { addPhase(); });
+  addPhase('alta', 'forte', 3, 'dias');
+  addPhase('lateral', 'moderada', 1, 'dias');
+  addPhase('baixa', 'moderada', 1, 'dias');
+
+  var btnEx = document.getElementById('btnSrcExistente'), btnNv = document.getElementById('btnSrcNovo');
+  var boxEx = document.getElementById('boxExistente'), boxNv = document.getElementById('boxNovo');
+  function setSrc(src) {
+    document.getElementById('botSrc').value = src;
+    btnEx.setAttribute('aria-pressed', src === 'existente');
+    btnNv.setAttribute('aria-pressed', src === 'novo');
+    boxEx.hidden = src !== 'existente';
+    boxNv.hidden = src !== 'novo';
+  }
+  btnEx.addEventListener('click', function () { setSrc('existente'); });
+  btnNv.addEventListener('click', function () { setSrc('novo'); });
+  {% if not bots %}setSrc('novo');{% endif %}
+
+  document.getElementById('randomSeed').addEventListener('click', function () {
+    document.getElementById('seed').value = 'malha-' + Math.floor(1000 + Math.random() * 9000);
+  });
+  document.getElementById('noSeed').addEventListener('change', function () {
+    document.getElementById('seed').disabled = this.checked;
+  });
+})();
+</script>
+{% endblock %}

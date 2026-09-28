@@ -11,7 +11,7 @@
 </form>
 {% else %}
 <h2>Parar todos os bots?</h2>
-<p class="sub">Para todos os bots e cancela as ordens abertas. O sistema fica em modo seguro até o reativares.</p>
+<p class="sub">Para todos os bots e cancela as ordens abertas. Cada bot passa a "A parar" e só fica "Parado" depois de a Testnet confirmar (sem ordens abertas e com a posição fechada). O sistema fica em modo seguro até o reativares.</p>
 <div class="card"><b>Vai parar {{ n_bots }} bot{{ '' if n_bots == 1 else 's' }} e cancelar {{ n_orders }} {{ 'ordem' if n_orders == 1 else 'ordens' }} aberta{{ '' if n_orders == 1 else 's' }}.</b>
   <p class="tag">Nos bots da Testnet a posição em moeda é fechada ao preço de mercado, a não ser que o bot tenha a regra "nunca vender abaixo do custo" ligada e vender desse prejuízo: aí a moeda fica.</p></div>
 <form method="post" class="row">

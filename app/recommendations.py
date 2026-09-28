@@ -75,6 +75,72 @@ FIELDS = {
         "small": "Com ~168 € de trading, 10% são ~17 €. Uma variação normal pode parar o bot cedo. "
                  "Ajusta depois de veres quantas paragens falsas houve em simulação.",
     },
+    "pair_min_volume": {
+        "summary": "Volume negociado nas últimas 24 h, em milhões de USDT. Mais volume = ordens executadas sem mexer no preço.",
+        "profiles": [
+            ("Conservador", "50 M ou mais: só pares muito líquidos (BTC, ETH e pouco mais).", {"pair_min_volume": 50}),
+            ("Equilibrado", "20 M (ponto de partida).", {"pair_min_volume": 20}),
+            ("Arrojado", "5 M: aparecem mais pares, com ordens menos fáceis de executar.", {"pair_min_volume": 5}),
+        ],
+        "mistake": "Baixar muito o volume só para ter mais pares: com pouca liquidez o preço salta e a grelha executa mal.",
+        "small": "Com capital pequeno as tuas ordens são minúsculas: 5 M já chega para não mexeres no preço. Mas se o mercado "
+                 "ficar calmo, o volume total baixa para todos; se nada aparecer, baixa este valor em vez de forçar um par mau.",
+    },
+    "pair_max_spread": {
+        "summary": "Diferença entre o preço de compra e o de venda, em %. Cada ciclo paga-a; um spread grande come o ganho.",
+        "profiles": [
+            ("Conservador", "0,02%.", {"pair_max_spread": 0.02}),
+            ("Equilibrado", "0,05% (ponto de partida).", {"pair_max_spread": 0.05}),
+            ("Arrojado", "0,1%: mais pares, mas cada ciclo custa mais.", {"pair_max_spread": 0.1}),
+        ],
+        "mistake": "Ignorar o spread: um degrau de 1,5% com spread de 0,3% perde uma quinta parte do ganho.",
+        "small": "Com ganhos por ciclo de cêntimos, o spread decide se compensa. Prefere pares com spread perto de 0,01%.",
+    },
+    "pair_range_min": {
+        "summary": "Movimento mínimo nas últimas 24 h (máximo menos mínimo, em % do preço). Abaixo disto o preço está parado e a "
+                   "grelha quase não faz ciclos.",
+        "profiles": [
+            ("Conservador", "2% (ponto de partida).", {"pair_range_min": 2}),
+            ("Equilibrado", "1,5%.", {"pair_range_min": 1.5}),
+            ("Arrojado", "1%: aceita mercados mais parados.", {"pair_range_min": 1}),
+        ],
+        "mistake": "Subir demasiado o mínimo em mercados calmos: deixa de haver pares e acabas a forçar critérios.",
+        "small": "Uma grelha ganha quando o preço anda de um lado para o outro; com pouco movimento ganha pouco, mas também "
+                 "arrisca pouco.",
+    },
+    "pair_range_max": {
+        "summary": "Movimento máximo nas últimas 24 h. Acima disto o preço anda demasiado depressa e a grelha fica presa numa "
+                   "queda ou deixa de ganhar numa subida.",
+        "profiles": [
+            ("Conservador", "6%.", {"pair_range_max": 6}),
+            ("Equilibrado", "8% (ponto de partida).", {"pair_range_max": 8}),
+            ("Arrojado", "12%: aceita pares mais voláteis, com mais risco.", {"pair_range_max": 12}),
+        ],
+        "mistake": "Aceitar \"a moeda que mais mexe\": é a que mais depressa sai da zona da grelha.",
+        "small": "Quando o mercado inteiro está agitado, quase todos os pares passam o máximo. Não subas o limite por causa de um "
+                 "dia: espera, ou deixa a opção de alargar automaticamente fazer isso de forma visível.",
+    },
+    "pair_range_target": {
+        "summary": "O movimento que consideras ideal: quanto mais perto deste valor, mais pontos o par recebe (40% da nota).",
+        "profiles": [
+            ("Conservador", "3%.", {"pair_range_target": 3}),
+            ("Equilibrado", "4% (ponto de partida).", {"pair_range_target": 4}),
+            ("Arrojado", "6%.", {"pair_range_target": 6}),
+        ],
+        "mistake": "Pôr o ideal fora do intervalo mínimo-máximo (o painel recusa).",
+        "small": "É só uma preferência de ordenação: não exclui nenhum par, escolhe qual aparece primeiro.",
+    },
+    "pair_adaptive": {
+        "summary": "Se nenhum par cumprir os critérios, o painel alarga-os por degraus (e diz que o fez). Ligada, nunca ficas "
+                   "sem opções; desligada, ficas sem sugestões e o painel diz porquê.",
+        "profiles": [
+            ("Conservador", "Desligada: só pares que cumprem exatamente o que definiste.", None),
+            ("Equilibrado", "Ligada (ponto de partida): a lista nunca fica vazia, e os pares alargados vêm marcados.", None),
+        ],
+        "mistake": "Escolher um par marcado \"fora dos critérios\" sem ler porquê.",
+        "small": "Serve para os dias em que o mercado muda muito e os teus números deixam de existir. Os degraus são: volume "
+                 "a 50%, depois 20%; spread ×1,5, depois ×3; e movimento alargado nos dois lados.",
+    },
     "exclusions": {
         "summary": "Mantém memecoins e moedas alavancadas excluídas. Stablecoins só na caixa.",
         "profiles": [

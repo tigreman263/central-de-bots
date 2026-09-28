@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Reserva · Malha{% endblock %}
+{% block body %}
+<h2>Reserva</h2>
+<p class="sub">Um algoritmo propõe moedas estabelecidas para a reserva, com dados reais da Binance. Nunca compra nada: só propõe, e tu aprovas, ajustas o peso ou retiras cada moeda quando quiseres. A reserva é hoje {{ split_reserve }}% do capital (muda em <a href="{{ url_for('config') }}">Configuração</a>).</p>
+
+<div class="card">
+  <h3>A reserva atual</h3>
+  {% if v.approved %}
+    <table><thead><tr><th>Moeda</th><th class="r">Peso-alvo</th><th class="r">Alvo</th><th class="r">Tens (livre)</th><th class="r">Em ordens</th><th class="r">Diferença</th><th>Nota</th><th></th></tr></thead><tbody>
+      {% for r in v.approved %}
+        <tr>
+          <td><b>{{ r.coin }}</b></td>
+          <td class="r"><form method="post" action="{{ url_for('reserva_ajustar') }}" class="row" style="justify-content:flex-end;gap:6px">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ r.id }}">
+            <input type="number" step="0.1" min="0.1" max="100" name="pct" value="{{ '%.1f' % r.suggested_pct }}" style="width:80px" aria-label="Peso-alvo de {{ r.coin }} (%)">
+            <button class="btn small">Ajustar</button>
+          </form></td>
+          <td class="r num">{{ '%.2f' % r.target_usdt ~ ' USDT' if r.target_usdt is not none else '—' }}</td>
+          <td class="r num">{{ '%.2f' % r.held_usdt ~ ' USDT' if r.held_usdt is not none else '—' }}</td>
+          <td class="r num">{% if r.locked_usdt %}<span style="color:var(--loss)">{{ '%.2f' % r.locked_usdt }} USDT</span>{% elif r.locked_usdt is not none %}—{% else %}—{% endif %}</td>
+          <td class="r num">{% if r.gap_usdt is not none %}<span class="{{ 'up' if r.gap_usdt <= 0 else 'down' }}">{{ r.gap_usdt | signed }}</span>{% else %}—{% endif %}</td>
+          <td class="tag">{{ r.note or '—' }}</td>
+          <td><form method="post" action="{{ url_for('reserva_remover') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ r.id }}"><button class="btn small danger">Retirar</button></form></td>
+        </tr>
+      {% endfor %}
+    </tbody></table>
+    <p class="tag">Os pesos-alvo somam {{ v.total_pct }}%{% if v.total_pct != 100 %} <span style="color:var(--loss)">(não é 100%; ajusta os pesos acima se quiseres corrigir)</span>{% endif %}.</p>
+    <p class="tag">"Tens (livre)" conta só o que está disponível de facto; "Em ordens" é o que está bloqueado numa ordem aberta na Binance — não é seguro, mas se cancelares essa ordem passa a poder entrar na reserva.</p>
+    {% if not v.has_real_portfolio %}<p class="tag">Sem chave real ligada, o alvo e o "tens" ficam a "—". Liga a chave (só leitura) em <a href="{{ url_for('portfolio_key') }}">Portefólio</a> para comparar com o que tens de facto.</p>{% endif %}
+  {% else %}<p class="tag">Ainda não aprovaste nenhuma moeda para a reserva.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Propostas por decidir</h3>
+  {% if v.pending %}
+    {% for p in v.pending %}
+    <div class="sug" style="margin-bottom:12px">
+      <div class="row" style="justify-content:space-between"><b>{{ p.coin }}</b><span class="tag num">peso sugerido {{ '%.1f' % p.suggested_pct }}%</span></div>
+      <p style="margin:6px 0">{{ p.justification }}</p>
+      <p class="tag num">Volume 24h: {{ '%.0f' % (p.quote_volume / 1e6) }} M USDT · Spread: {{ '%.3f' % p.spread_pct }}%</p>
+      <p class="tag">{{ p.risk }}</p>
+      <form method="post" action="{{ url_for('reserva_decidir') }}" class="stack">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="id" value="{{ p.id }}">
+        <div class="field"><label for="nota-{{ p.id }}">Nota (opcional)</label>
+          <input id="nota-{{ p.id }}" type="text" name="note" placeholder="Porque aprovas ou rejeitas esta proposta…"></div>
+        <div class="row"><button class="btn pri" name="action" value="approve">Aprovar</button>
+          <button class="btn danger" name="action" value="reject">Rejeitar</button></div>
+      </form>
+    </div>
+    {% endfor %}
+  {% else %}<p class="tag">Sem propostas pendentes agora.</p>{% endif %}
+  <form method="post" action="{{ url_for('reserva_gerar') }}" class="row" style="margin-top:8px">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn">Gerar novas propostas</button>
+  </form>
+  <p class="tag">Lê os pares reais da Binance (públicos, sem chave) e propõe, de uma lista fixa de moedas estabelecidas, as que hoje têm volume alto e spread apertado. Nunca repete uma moeda ainda pendente, aprovada ou já rejeitada; uma moeda retirada pode voltar a ser proposta.</p>
+</div>
+
+{% if v.history %}
+<div class="card">
+  <h3>Histórico de decisões</h3>
+  <table><thead><tr><th>Moeda</th><th>Decisão</th><th>Data</th><th>Nota</th></tr></thead><tbody>
+    {% for h in v.history %}
+      <tr><td>{{ h.coin }}</td><td><span class="pill {{ 'gain' if h.status == 'approved' else ('warn' if h.status == 'removed' else 'loss') }}">{{ {'approved': 'Aprovada', 'rejected': 'Rejeitada', 'removed': 'Retirada'}[h.status] }}</span></td>
+        <td class="num">{{ h.decided_ts[:10] }}</td><td class="tag">{{ h.note or '—' }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+<div class="card">
+  <p class="tag">A lista de moedas candidatas é escolhida à mão (não vem de uma classificação de mercado em tempo real, que a Binance não dá de forma fiável) e revista de vez em quando; os números de cada proposta (volume, spread) são sempre lidos agora mesmo. Aprovar, ajustar ou retirar uma moeda só muda o alvo registado aqui — não compra nem vende nada.</p>
+</div>
+{% endblock %}

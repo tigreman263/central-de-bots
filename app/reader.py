@@ -10,6 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import netmeter
+
 BASE = "https://api.binance.com"
 
 # Permissões da chave que a tornam perigosa: qualquer uma destas ligada => a chave é recusada.
@@ -50,6 +52,30 @@ def check_permissions(restrictions):
     return (not problems, problems, warnings)
 
 
+# Permissões perigosas para a futura chave de NEGOCIAÇÃO real: tudo o que DANGEROUS_FLAGS tem, exceto a
+# negociação spot em si (essa tem de estar ligada, é o que torna a chave útil) — nunca margem, futuros,
+# levantamentos nem transferências. "enableSpotAndMarginTrading", apesar do nome, é só a permissão geral de
+# negociar; margem exige também "enableMargin" à parte, por isso continua recusada abaixo.
+TRADING_REQUIRED_FLAG = "enableSpotAndMarginTrading"
+TRADING_DANGEROUS_FLAGS = {k: v for k, v in DANGEROUS_FLAGS.items() if k != TRADING_REQUIRED_FLAG}
+
+
+def check_trading_permissions(restrictions):
+    """Como check_permissions, mas para uma chave que pode negociar spot — nunca levantar, nunca margem/futuros."""
+    problems = []
+    if not restrictions.get("enableReading"):
+        problems.append("a chave não tem permissão de leitura")
+    if not restrictions.get(TRADING_REQUIRED_FLAG):
+        problems.append("a chave não tem permissão para negociar (spot)")
+    for flag, label in TRADING_DANGEROUS_FLAGS.items():
+        if restrictions.get(flag):
+            problems.append(f"a chave tem permissão de {label}")
+    warnings = []
+    if not restrictions.get("ipRestrict"):
+        warnings.append("A chave não está restrita a um IP. Na Binance, restringe-a ao IP da tua casa.")
+    return (not problems, problems, warnings)
+
+
 class BinanceReader:
     def __init__(self, key="", secret="", base=BASE, opener=urllib.request.urlopen):
         self._key, self._secret, self._base, self._open = key, secret, base, opener
@@ -67,10 +93,14 @@ class BinanceReader:
         if params:
             url += "?" + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers=headers, method="GET")
+        t0 = time.monotonic()
         try:
             with self._open(request, timeout=8) as resp:
-                return json.load(resp)
+                data = json.load(resp)
+            netmeter.record((time.monotonic() - t0) * 1000)
+            return data
         except urllib.error.HTTPError as exc:
+            netmeter.record((time.monotonic() - t0) * 1000, error=exc.code == 429 or exc.code >= 500)
             try:
                 code = json.loads(exc.read().decode()).get("code")
             except Exception:
@@ -79,6 +109,7 @@ class BinanceReader:
                 code = -1003
             raise BinanceError(ERRORS_PT.get(code, f"A Binance respondeu com erro ({exc.code}).")) from None
         except (urllib.error.URLError, TimeoutError, OSError):
+            netmeter.record((time.monotonic() - t0) * 1000, error=True, timeout=True)
             raise BinanceError("Sem ligação à Binance.") from None
 
     # ---- privado (chave só de leitura) ----

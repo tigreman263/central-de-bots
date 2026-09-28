@@ -20,8 +20,10 @@ GRID = {
 STATES = {
     "running": ("A trabalhar", "Tem ordens ativas e está a comprar e a vender."),
     "paused": ("Em pausa", "Não faz compras novas; as vendas que já estavam abertas mantêm-se. Carrega em Retomar quando quiseres."),
+    "stopping": ("A parar", "A paragem foi pedida. Cancela as ordens, contabiliza o que já executou e fecha a posição. Só fica Parado depois de a Testnet o confirmar."),
+    "recovering": ("A recuperar", "O estado do bot e a Testnet divergiram. Não cria ordens novas: lê tudo da Testnet, contabiliza o que faltava e só depois volta a trabalhar."),
     "pending": ("A arrancar", "Está criado e aprovado. O corredor monta a grelha no próximo minuto."),
-    "stopped": ("Parado", "Fechou a posição (simulada) e cancelou tudo. Não volta a arrancar: cria outro bot se quiseres."),
+    "stopped": ("Parado", "Fechou a posição e cancelou tudo. Não volta a arrancar sozinho: carrega em Ativar neste bot quando quiseres."),
 }
 
 STATS = {

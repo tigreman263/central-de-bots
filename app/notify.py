@@ -6,7 +6,9 @@ Configuração > Alertas escolhes, por canal, se está ligado e a partir de que 
 pára um bot: o painel regista-o sempre.
 """
 import json
+import queue
 import re
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,7 +25,7 @@ KEEP_DAYS = 7
 
 # tipo de evento do motor -> gravidade do alerta
 SEVERITY = {"stop": "alto", "reset": "alto", "guard": "alto", "error": "alto", "pause": "atenção",
-            "blocked": "atenção"}
+            "blocked": "atenção", "recovery": "atenção"}      # "recon" (uma linha por ordem) fica só no registo do bot
 LEVEL = {"info": 1, "atenção": 2, "alto": 3}
 MIN_CHOICES = (("atenção", "Atenção e alto (tudo o que importa)"), ("alto", "Só alto (o que exige ação)"))
 DEFAULT_PREFS = {"alert_telegram_on": "1", "alert_telegram_min": "atenção",
@@ -137,23 +139,67 @@ def prefs(conn):
     return out
 
 
-def broadcast(conn, text, severity="alto"):
-    """Envia para os canais configurados e ligados cuja gravidade mínima o alerta atinge. Devolve [(canal, ok, erro)]."""
-    p = prefs(conn)
-    level = LEVEL.get(severity, 3)
+_QUEUE = None                    # fila de envio (só depois de start_worker): os alertas nunca atrasam o caminho crítico
+QUEUE_MAX = 200
+
+
+def start_worker():
+    """Liga o envio em segundo plano: `broadcast` passa a só pôr na fila e voltar (a rede lenta não trava a paragem)."""
+    global _QUEUE
+    if _QUEUE is None:
+        _QUEUE = queue.Queue(maxsize=QUEUE_MAX)
+        threading.Thread(target=_worker, args=(_QUEUE,), daemon=True, name="alertas").start()
+
+
+def _worker(q):
+    while True:
+        jobs = q.get()
+        try:
+            _deliver(jobs)
+        except Exception:
+            log.exception("falha ao enviar um alerta")
+
+
+def _deliver(jobs):
     results = []
-    tg = keystore.load(_path())
-    if tg and p["alert_telegram_on"] == "1" and level >= LEVEL.get(p["alert_telegram_min"], 2):
-        ok, err = (SENDER or send)(tg[0], tg[1], text)
-        results.append(("telegram", ok, err))
-    wa = keystore.load_json(_wa_path())
-    if wa and p["alert_whatsapp_on"] == "1" and level >= LEVEL.get(p["alert_whatsapp_min"], 3):
-        ok, err = (WA_SENDER or whatsapp_send)(wa, text)
-        results.append(("whatsapp", ok, err))
-    for channel, ok, err in results:
+    for channel, fn, args in jobs:
+        ok, err = fn(*args)
+        results.append((channel, ok, err))
         if not ok:
             log.warning("Alerta por %s não enviado: %s", channel, err)
     return results
+
+
+def broadcast(conn, text, severity="alto"):
+    """Envia para os canais configurados e ligados cuja gravidade mínima o alerta atinge. Devolve [(canal, ok, erro)].
+
+    Com o envio em segundo plano ligado só põe na fila (devolve [("fila", True, "")]); sem ele, envia já."""
+    p = prefs(conn)
+    level = LEVEL.get(severity, 3)
+    jobs = []
+    tg = keystore.load(_path())
+    if tg and p["alert_telegram_on"] == "1" and level >= LEVEL.get(p["alert_telegram_min"], 2):
+        jobs.append(("telegram", SENDER or send, (tg[0], tg[1], text)))
+    wa = keystore.load_json(_wa_path())
+    if wa and p["alert_whatsapp_on"] == "1" and level >= LEVEL.get(p["alert_whatsapp_min"], 3):
+        jobs.append(("whatsapp", WA_SENDER or whatsapp_send, (wa, text)))
+    if _QUEUE is not None and jobs:
+        try:
+            _QUEUE.put_nowait(jobs)
+        except queue.Full:
+            log.warning("Fila de alertas cheia: alerta descartado do envio (fica no painel): %s", text[:80])
+        return [("fila", True, "")]
+    return _deliver(jobs)
+
+
+def system_alert(conn, key, severity, message, coin="Sistema", criterion="sistema"):
+    """Alerta do equipamento (não de um bot): fica no painel e vai para os canais ligados, como os dos bots."""
+    alerts.init(conn)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("INSERT OR IGNORE INTO alerts (key, coin, criterion, severity, message, first_ts, surfaced_ts) "
+                 "VALUES (?, ?, ?, ?, ?, ?, ?)", (key, coin, criterion, severity, message, now, now))
+    conn.commit()
+    broadcast(conn, f"Malha · {message}", severity)
 
 
 def bot_events(conn, eng, events, now_ms=None):

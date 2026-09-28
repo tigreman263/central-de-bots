@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Conta real · Malha{% endblock %}
+{% block body %}
+<h2>Conta real</h2>
+<p class="sub">Esta página só prepara a infraestrutura e as guardas de segurança. Nenhum bot negoceia com dinheiro real ainda — isso só acontece numa fase seguinte, depois de ativares aqui e de criares esse fluxo. Por agora, ativar só liga a bandeira; não há nenhum caminho de código que envie ordens reais.</p>
+
+<div class="card">
+  <h3>{{ '🟢 Ativada' if enabled else '🔒 Desativada' }}</h3>
+  {% if enabled %}
+    <p class="tag">A bandeira de ativação está ligada. Mesmo assim, sem um bot em modo real (que ainda não existe), nada é enviado à Binance.</p>
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="desativar"><button class="btn danger">Desativar</button></form>
+  {% else %}
+    <p class="tag">É o estado normal e seguro. Só muda depois de cumprires o portão abaixo e confirmares explicitamente.</p>
+  {% endif %}
+</div>
+
+<div class="card stack">
+  <h3>O portão (docs/DESIGN.md)</h3>
+  <p class="tag">Números reais, calculados a partir dos bots da Testnet — nunca estimados.</p>
+  <table><tbody>
+    <tr><td>Dias a correr na Testnet</td><td class="r num">{{ gate.days }} / {{ gate.days_target }}</td>
+      <td><span class="pill {{ 'gain' if gate.days_ok else 'idle' }}">{{ '✓' if gate.days_ok else '○' }}</span></td></tr>
+    <tr><td>Ciclos completados</td><td class="r num">{{ gate.cycles }} / {{ gate.cycles_target }}</td>
+      <td><span class="pill {{ 'gain' if gate.cycles_ok else 'idle' }}">{{ '✓' if gate.cycles_ok else '○' }}</span></td></tr>
+    <tr><td>Bate "comprar e manter" em todos os bots</td><td class="r num">{% if gate.beats_hold is none %}—{% else %}{{ 'sim' if gate.beats_hold else 'não' }}{% endif %}</td>
+      <td><span class="pill {{ 'gain' if gate.beats_hold else 'idle' }}">{{ '✓' if gate.beats_hold else '○' }}</span></td></tr>
+  </tbody></table>
+  {% if gate.bots %}
+  <table><thead><tr><th>Par</th><th>Estado</th><th class="r">Ciclos</th><th class="r">Bot</th><th class="r">Comprar e manter</th><th class="r">Diferença</th></tr></thead><tbody>
+    {% for b in gate.bots %}
+      <tr><td>{{ b.pair }}</td><td class="tag">{{ b.status }}</td><td class="r num">{{ b.cycles }}</td>
+        <td class="r num">{{ b.net_pct | signed }}%</td>
+        <td class="r num">{% if b.hold_pct is not none %}{{ b.hold_pct | signed }}%{% else %}—{% endif %}</td>
+        <td class="r num">{% if b.vs_hold_pct is not none %}<span class="{{ 'up' if b.vs_hold_pct > 0 else 'down' }}">{{ b.vs_hold_pct | signed }}%</span>{% else %}—{% endif %}</td></tr>
+    {% endfor %}
+  </tbody></table>
+  {% else %}<p class="tag">Ainda não há nenhum bot na Testnet com uma grelha montada.</p>{% endif %}
+  <p class="tag">Falta sempre confirmar à mão: a chave restrita a um IP (a Binance não garante isso por código) e que estes {{ gate.days_target }}+ dias foram mesmo contínuos, não uma sequência de testes.</p>
+</div>
+
+<div class="card">
+  <h3>Como criar a chave de negociação na Binance</h3>
+  <ol>
+    <li>Na Binance, cria uma chave nova em Gestão de API.</li>
+    <li>Ativa "Ativar leitura" e "Ativar negociação Spot e Margem" (só esta dá para negociar; a Binance não separa "spot" de "margem e spot" no nome, mas a margem exige também "Ativar margem", que fica desligada).</li>
+    <li>Deixa desligados: margem, futuros, levantamentos, transferências e opções.</li>
+    <li>Restringe a chave ao IP desta máquina.</li>
+    <li>Cola aqui a chave e o segredo.</li>
+  </ol>
+</div>
+
+{% if masked %}
+<div class="card">
+  <h3>Chave guardada</h3>
+  <p>Termina em <b class="num">{{ masked }}</b>. Nunca é mostrada por inteiro.</p>
+  <div class="row">
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="testar"><button class="btn pri">Testar ligação</button></form>
+    <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="remover"><button class="btn danger">Remover chave</button></form>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" class="card stack">
+  <h3 style="margin:0">{{ 'Substituir a chave' if masked else 'Guardar chave' }}</h3>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="guardar">
+  <div class="field"><label for="api_key">Chave (API Key)</label>
+    <input id="api_key" name="api_key" type="password" autocomplete="off" required></div>
+  <div class="field"><label for="api_secret">Segredo (Secret Key)</label>
+    <input id="api_secret" name="api_secret" type="password" autocomplete="off" required></div>
+  <div class="row"><button class="btn pri">Testar e guardar</button></div>
+  <p class="tag">A chave é recusada se tiver levantamentos, margem, futuros, transferências ou opções ligados. Fica num ficheiro próprio, separado da chave só de leitura do Portefólio.</p>
+</form>
+
+{% if not enabled %}
+<form method="post" class="card stack">
+  <h3 style="margin:0">Ativar</h3>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="ativar">
+  {% if not gate.ready %}
+    <p class="tag" style="color:var(--loss)">O portão ainda não está cumprido. Este botão vai recusar até estarem os três critérios acima a verde.</p>
+  {% elif not masked %}
+    <p class="tag" style="color:var(--loss)">Falta guardar uma chave de negociação válida antes de poderes ativar.</p>
+  {% else %}
+    <p class="tag">O portão está cumprido. Escreve a frase exata para confirmares que é a sério.</p>
+  {% endif %}
+  <div class="field"><label for="confirmar">Escreve "{{ confirm_phrase }}"</label>
+    <input id="confirmar" name="confirmar" autocomplete="off" placeholder="{{ confirm_phrase }}"></div>
+  <div class="row"><button class="btn danger">Ativar dinheiro real</button></div>
+</form>
+{% endif %}
+{% endblock %}

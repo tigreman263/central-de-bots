@@ -10,7 +10,7 @@ Uso:  python run_bots.py
 import sys
 import threading
 
-from app import botstore, config, db, keystore, lock, runner
+from app import botstore, config, db, keystore, lock, notify, runner
 from app.log import log, setup
 from app.reader import BinanceReader
 from app.trader import Trader, TraderError
@@ -49,5 +49,6 @@ if __name__ == "__main__":
     conn.close()
     check_clock()
     log.info("Corredor dos bots a correr (simulação e Testnet). Ctrl+C para parar.")
+    notify.start_worker()                                  # alertas em segundo plano: nunca atrasam a paragem
     threading.Thread(target=runner.watch, args=(DB_PATH, make_trader, 5), daemon=True).start()
     runner.loop(DB_PATH, lambda: BinanceReader(), trader_factory=make_trader)

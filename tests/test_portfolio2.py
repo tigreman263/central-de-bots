@@ -1,6 +1,9 @@
 """Critérios de docs/PORTFOLIO2.md: custo médio, Portefólio reorganizado, Staking e Ai."""
+import html as html_lib
 import json
 import re
+
+import pytest
 
 from app import analysis, db, layout, staking
 from test_portfolio import API_KEY, SECRET_KEY, csrf, env, klines, save_key  # noqa: F401
@@ -157,7 +160,7 @@ def test_staking_failure_shows_unavailable_and_marks_old_data(env):
 
 
 # ---------- Ai ----------
-def test_ai_page_has_blocks_tips_loss_and_disabled_chat(env):
+def test_ai_page_has_blocks_tips_loss_and_a_copy_to_paste_chat(env):
     c, world, app, tmp = env
     add_coin(world, "ADA", "0.50", "100")
     earn_world(world)
@@ -168,7 +171,10 @@ def test_ai_page_has_blocks_tips_loss_and_disabled_chat(env):
         assert block in html, block
     assert "ADA está 33.3% abaixo do teu custo médio" in html
     assert "A decisão é sua" in html and "Número:" in html
-    assert 'placeholder="Pergunta sobre a tua carteira' in html and "Ainda não ligada" in html
+    assert 'placeholder="Pergunta sobre a tua carteira' in html
+    assert 'id="ai-copy"' in html and "Copiar pergunta" in html          # sem chave: copiar e colar, nada é enviado sozinho
+    assert "Sem chave nem chamada automática" in html
+    assert "disabled" not in html.split('id="ai-copy"')[1][:40]          # o botão já não está desativado
 
 
 def test_ai_summary_has_no_secrets_and_verifier_catches_leaks(env):
@@ -178,11 +184,30 @@ def test_ai_summary_has_no_secrets_and_verifier_catches_leaks(env):
     set_cost(c, "ADA", "0.75")
     html = c.get("/ai").get_data(as_text=True)
     assert API_KEY not in html and SECRET_KEY not in html
-    body = re.search(r'<pre class="jsonbox">(.*?)</pre>', html, re.S).group(1)
+    body = re.search(r'<pre[^>]*class="jsonbox"[^>]*>(.*?)</pre>', html, re.S).group(1)
     assert "version" in body and "holdings" in body and "Read-only summary" in body
     assert analysis.verify_no_secrets("x " + API_KEY, [API_KEY])
     assert analysis.verify_no_secrets("a" * 64, [])
     assert analysis.verify_no_secrets('{"coin": "BTC"}', [API_KEY]) == []
+
+
+def test_ai_summary_json_carries_the_cost_and_unrealized_pnl_not_just_the_page(env):
+    """Bug real: o resumo para a IA (JSON) lia de `snap['holdings']`, que nunca tem custo nem lucro/prejuízo aplicados
+    (só `costs_applied` tem); por isso `avg_cost_usdt` saía sempre null mesmo com o custo guardado."""
+    c, world, app, tmp = env
+    add_coin(world, "ADA", "0.50", "1000")                                # preço a 0,50; custo 0,75 -> 33,3% abaixo
+    save_key(c)
+    set_cost(c, "ADA", "0.75")
+    html = c.get("/ai").get_data(as_text=True)
+    body = re.search(r'<pre[^>]*class="jsonbox"[^>]*>(.*?)</pre>', html, re.S).group(1)
+    data = json.loads(html_lib.unescape(body))
+    ada = next(h for h in data["holdings"] if h["coin"] == "ADA")
+    assert ada["avg_cost_usdt"] == 0.75                                    # não é null
+    assert ada["unrealized_pnl_pct"] == pytest.approx(-33.33, abs=0.1)
+    assert ada["unrealized_pnl_usdt"] == pytest.approx((0.50 - 0.75) * 1000, abs=0.5)
+    btc = next((h for h in data["holdings"] if h["coin"] == "BTC"), None)  # moeda sem custo definido: continua null, não inventado
+    if btc:
+        assert btc["avg_cost_usdt"] is None and btc["unrealized_pnl_usdt"] is None
 
 
 def test_ai_summary_is_blocked_if_it_would_leak_a_secret(env, monkeypatch):
@@ -191,6 +216,61 @@ def test_ai_summary_is_blocked_if_it_would_leak_a_secret(env, monkeypatch):
     monkeypatch.setattr(analysis, "summary_text", lambda s: "leak " + API_KEY)
     html = c.get("/ai").get_data(as_text=True)
     assert "O resumo foi bloqueado" in html and API_KEY not in html
+    assert 'id="ai-copy"' not in html                                    # bloqueado: nem o botão de copiar aparece
+
+
+def test_the_ai_link_can_be_configured_changed_and_removed(env):
+    c, world, app, tmp = env
+    save_key(c)
+    html = c.get("/ai").get_data(as_text=True)
+    assert "Configurar o link da IA" in html and 'href="https://' not in html   # ainda não configurado: sem botão de abrir
+    tok = re.search(r'action="/ai/link"[^>]*>.*?name="csrf" value="([^"]+)"', html, re.S).group(1)
+    r = c.post("/ai/link", data={"csrf": tok, "url": "https://claude.ai/project/abc123"}, follow_redirects=True)
+    html = r.get_data(as_text=True)
+    assert "Link guardado" in html
+    m = re.search(r'<a class="btn[^"]*" href="https://claude\.ai/project/abc123" target="_blank"[^>]*>.*?Abrir a minha IA', html)
+    assert m
+    assert "Alterar o link da IA" in html                                          # já configurado: resumido por defeito
+    assert db.get(db.connect(app.config["DB_PATH"]), "ai_chat_url") == "https://claude.ai/project/abc123"
+    tok2 = re.search(r'action="/ai/link"[^>]*>.*?name="csrf" value="([^"]+)"', html, re.S).group(1)
+    c.post("/ai/link", data={"csrf": tok2, "url": "https://chat.openai.com/g/meu-gpt"})
+    html = c.get("/ai").get_data(as_text=True)
+    assert 'href="https://chat.openai.com/g/meu-gpt"' in html and "claude.ai/project/abc123" not in html
+    tok3 = re.search(r'action="/ai/link"[^>]*>.*?name="csrf" value="([^"]+)"', html, re.S).group(1)
+    c.post("/ai/link", data={"csrf": tok3, "url": "https://chat.openai.com/g/meu-gpt", "action": "clear"})
+    html = c.get("/ai").get_data(as_text=True)
+    assert 'href="https://' not in html and db.get(db.connect(app.config["DB_PATH"]), "ai_chat_url") == ""
+
+
+def test_the_ai_link_rejects_anything_that_is_not_http_or_https(env):
+    c, world, app, tmp = env
+    save_key(c)
+    html = c.get("/ai").get_data(as_text=True)
+    tok = re.search(r'action="/ai/link"[^>]*>.*?name="csrf" value="([^"]+)"', html, re.S).group(1)
+    for bad in ("javascript:alert(1)", "não é um link", "ftp://server/x", ""):
+        r = c.post("/ai/link", data={"csrf": tok, "url": bad}, follow_redirects=True)
+        assert "não parece válido" in r.get_data(as_text=True) or bad == ""
+    assert db.get(db.connect(app.config["DB_PATH"]), "ai_chat_url") in (None, "")
+
+
+def test_the_ai_link_form_requires_csrf(env):
+    c, world, app, tmp = env
+    save_key(c)
+    c.get("/ai")
+    r = c.post("/ai/link", data={"csrf": "errado", "url": "https://claude.ai/x"})
+    assert r.status_code in (400, 403)
+    assert db.get(db.connect(app.config["DB_PATH"]), "ai_chat_url") in (None, "")
+
+
+def test_ai_copy_button_script_has_the_csp_nonce_and_no_network_call(env):
+    c, world, app, tmp = env
+    save_key(c)
+    html = c.get("/ai").get_data(as_text=True)
+    m = re.search(r'<script nonce="([^"]+)">\s*\(function \(\) \{\s*var btn = document\.getElementById\("ai-copy"\)', html)
+    assert m and m.group(1)                                              # o script inline tem o nonce da CSP desta resposta
+    script = html[html.index('id="ai-copy"'):]
+    for forbidden in ("fetch(", "XMLHttpRequest", "axios", "anthropic", "api.claude", "api.openai"):
+        assert forbidden not in script.lower()                          # só copia para a área de transferência, nunca envia
 
 
 def test_new_tabs_require_login_and_keep_stop_button(env):
@@ -208,5 +288,5 @@ def test_dust_creates_no_risk_alerts_and_is_aggregated_in_ai_summary(env):
     save_key(c)
     assert "DOGE:liquidez" not in c.get("/alertas").get_data(as_text=True) and "DOGE:" not in c.get("/alertas").get_data(as_text=True)
     html = c.get("/ai").get_data(as_text=True)
-    body = re.search(r'<pre class="jsonbox">(.*?)</pre>', html, re.S).group(1)
+    body = re.search(r'<pre[^>]*class="jsonbox"[^>]*>(.*?)</pre>', html, re.S).group(1)
     assert "DOGE" not in body and "dust" in body

@@ -9,6 +9,9 @@
 </nav>
 
 {% if aba != 'real' %}
+  {% if usage.over %}
+    <p class="flash" style="color:var(--loss)" role="alert">Tens {{ '%.2f' % usage.active_usdt }} USDT em bots ativos, mais do que a fatia "Trading" configurada permite ({{ '%.2f' % usage.limit_usdt }} USDT; excesso de {{ '%.2f' % usage.over_usdt }} USDT). Não bloqueia nada — é só para decidires se ajustas o orçamento dos bots ou a divisão em <a href="{{ url_for('config') }}">Configuração</a>.</p>
+  {% endif %}
   {% if not runner.alive %}
     <p class="flash error" role="alert">{{ runner.text }} Os bots só avançam com o corredor a correr (<code>python run_bots.py</code>).</p>
   {% else %}
@@ -20,9 +23,10 @@
 <div class="card stack">
   <h3>Bots com dinheiro real</h3>
   <p><span class="pill idle">○ Ainda não disponível</span></p>
-  <p>Por decisão tua, a Malha só opera em <b>simulação</b> e na <b>Testnet</b>. A conta real da Binance está ligada apenas para <b>leitura</b> (Portefólio, Staking e análises) e nenhuma chave consegue enviar ordens.</p>
-  <p class="tag">Esta fase só chega depois de: 30 a 60 dias de resultados na Testnet com pelo menos 100 ciclos, comparação com "comprar e manter", uma chave nova com permissão de escrita mas <b>nunca de levantamentos</b> (com o IP restrito), e a tua aprovação explícita nessa altura.</p>
-  <div class="row"><a class="btn" href="{{ url_for('portfolio_page') }}">Ver a carteira real (só leitura)</a>
+  <p>Por decisão tua, a Malha só opera em <b>simulação</b> e na <b>Testnet</b>. A conta real da Binance está ligada apenas para <b>leitura</b> (Portefólio, Staking e análises); a área da Conta Real só prepara a chave de negociação e o portão — nenhuma chave consegue enviar ordens ainda.</p>
+  <p class="tag">Portão atual: {{ gate.days }}/{{ gate.days_target }} dias na Testnet · {{ gate.cycles }}/{{ gate.cycles_target }} ciclos · {% if gate.beats_hold is none %}sem bots para comparar{% else %}{{ 'bate' if gate.beats_hold else 'não bate' }} comprar-e-manter{% endif %}.</p>
+  <div class="row"><a class="btn pri" href="{{ url_for('real_account') }}">Ir para a Conta Real</a>
+    <a class="btn" href="{{ url_for('portfolio_page') }}">Ver a carteira real (só leitura)</a>
     <a class="btn" href="{{ url_for('bots', aba='testnet') }}">Ir para a Testnet</a></div>
 </div>
 {% else %}
@@ -42,7 +46,8 @@
     {% else %}<p class="tag">Ainda sem dados: o corredor monta a grelha no primeiro minuto.</p>{% endif %}
     <p class="tag num">Capital {{ 'na Testnet' if r.mode == 'testnet' else 'virtual' }}: {{ '%g' % r.capital_usdt }} USDT{% if r.twin_of %} · gémeo do bot {{ r.twin_of }}{% endif %}</p>
     <div class="row"><a class="btn small" href="{{ url_for('bot_detail', bot_id=r.id) }}">Ver detalhe</a>
-      {% if r.status == 'stopped' %}<a class="btn small danger" href="{{ url_for('bot_delete', bot_id=r.id) }}">Apagar</a>{% endif %}</div>
+      {% if r.status == 'stopped' %}<form method="post" action="{{ url_for('bot_command', bot_id=r.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="activate"><button class="btn small pri">Ativar</button></form>
+      <a class="btn small danger" href="{{ url_for('bot_delete', bot_id=r.id) }}">Apagar</a>{% endif %}</div>
   </div>
   {% else %}
   <div class="card"><p class="tag">Ainda não há bots {{ 'na Testnet' if aba == 'testnet' else 'em simulação' }}.</p></div>

@@ -85,12 +85,12 @@ def test_an_error_in_the_middle_of_a_step_never_counts_a_fill_twice(world, monke
     tick(conn, ex, bid, 1)
     ex.fill(first_order(ex, "buy"))
     base_before = engine(conn, bid).s["base"]
-    real = Engine.on_exchange_fill
+    real = Engine.apply_trades
 
     def half_applied(self, *a, **k):
         real(self, *a, **k)
         raise RuntimeError("morreu a meio")
-    monkeypatch.setattr(Engine, "on_exchange_fill", half_applied)
+    monkeypatch.setattr(Engine, "apply_trades", half_applied)
     tick(conn, ex, bid, 2)                                                   # estado a meio: é descartado
     assert engine(conn, bid).s["base"] == pytest.approx(base_before)
     monkeypatch.undo()

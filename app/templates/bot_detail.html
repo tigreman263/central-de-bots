@@ -5,6 +5,8 @@
 <p class="sub">{% if bot.mode == 'testnet' %}<b>Testnet</b> · ordens reais na conta fictícia · capital {% else %}Simulação · capital virtual {% endif %}{{ '%g' % bot.capital_usdt }} USDT
   · <span class="pill {{ states[bot.status][1] }}">{{ states[bot.status][0] }}</span></p>
 {% if bot.reason %}<p class="flash warnbar">{{ bot.reason }}</p>{% endif %}
+{% if bot.status == 'stopping' %}<p class="tag">A parar (ainda não confirmado na Testnet): {{ eng.s.cancel_queue|length }} ordem(ns) a cancelar · posição {{ '%.6g' % eng.s.base }} {{ bot.pair[:-4] }}.</p>{% endif %}
+{% if bot.status == 'stopped' and eng.s.stop_outcome == 'residual' %}<p class="tag">Parado com pó: sobram {{ '%.6g' % eng.s.residual_qty }} {{ bot.pair[:-4] }} abaixo da ordem mínima. Ficam no bot, com o custo, sem contar como perda.</p>{% endif %}
 {% if bot.warning %}<p class="flash error">{{ bot.warning }}</p>{% endif %}
 {% if not runner.alive %}<p class="flash error">{{ runner.text }}</p>{% endif %}
 {% if bot.command %}<p class="tag">Pedido pendente: {{ bot.command }}. O corredor aplica-o no próximo minuto.</p>{% endif %}
@@ -40,8 +42,9 @@
 <div class="row" style="margin-bottom:16px">
   {% if bot.status == 'running' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="pause"><button class="btn">Pausar</button></form>{% endif %}
   {% if bot.status == 'paused' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="resume"><button class="btn pri">Retomar</button></form>{% endif %}
-  {% if bot.status in ('running', 'paused') %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="stop"><button class="btn danger">Parar bot…</button></form>{% endif %}
-  {% if bot.status == 'stopped' %}<a class="btn danger" href="{{ url_for('bot_delete', bot_id=bot.id) }}">Apagar bot…</a>{% endif %}
+  {% if bot.status in ('running', 'paused', 'recovering') %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="stop"><button class="btn danger">Parar bot…</button></form>{% endif %}
+  {% if bot.status == 'stopped' %}<form method="post" action="{{ url_for('bot_command', bot_id=bot.id) }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="cmd" value="activate"><button class="btn pri">Ativar</button></form>
+  <a class="btn danger" href="{{ url_for('bot_delete', bot_id=bot.id) }}">Apagar bot…</a>{% endif %}
   <a class="btn" href="{{ url_for('bots') }}">Voltar</a>
 </div>
 

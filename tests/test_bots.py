@@ -120,6 +120,16 @@ def test_creating_a_bot_needs_preview_then_explicit_approval(env):
     assert len(bots) == 1 and bots[0]["status"] == "pending" and bots[0]["capital_usdt"] == 77
 
 
+def test_creating_a_bot_with_an_unknown_mode_falls_back_to_simulation_never_real(env):
+    """A conta real ainda não tem o seu próprio fluxo de criação de bots — "real" nunca pode passar aqui,
+    nem por um valor de formulário inesperado ou manipulado."""
+    c, fm, app = env
+    form = {"csrf": tok(c, "/bots/novo?modo=real"), "pair": PAIR, "capital": "77", "step": "create", "modo": "real"}
+    c.post("/bots/novo?modo=real", data=form)
+    bots = botstore.all_bots(conn_of(app))
+    assert len(bots) == 1 and bots[0]["mode"] == "sim"
+
+
 def test_pair_outside_suggestions_or_tiny_capital_is_refused(env):
     c, fm, app = env
     base = {"csrf": tok(c, "/bots/novo"), "capital": "77", "step": "create"}

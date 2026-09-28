@@ -25,6 +25,7 @@
 
 <nav class="cfgnav" aria-label="Categorias da configuração">
   {% for code, label in cfg_cats %}<a href="{{ url_for('config', cat=code) }}" data-cat-link="{{ code }}"{% if code == cat %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+  <a href="{{ url_for('validation_page') }}">Validação do projeto</a>
 </nav>
 
 <form method="post" class="stack" id="cfgform"{% if cat not in form_cats %} hidden{% endif %}>
@@ -106,6 +107,35 @@
   </section>
 
   <section data-cat="sugestoes"{% if cat != 'sugestoes' %} hidden{% endif %}>
+    <div class="card stack">
+      <h3>Critérios para escolher pares</h3>
+      <p class="tag">Ao criar um bot, o painel só sugere pares que cumprem estes critérios e ordena-os por pontuação. Atualmente: {{ pair_criteria }}. Os valores são pontos de partida a validar: o mercado muda e o que hoje é normal pode deixar de existir.</p>
+      {% if pair_status %}<p class="tag">Última leitura do mercado: {{ pair_status.count }} par{{ '' if pair_status.count == 1 else 'es' }} sugerido{{ '' if pair_status.count == 1 else 's' }}{% if pair_status.level %} (critérios alargados: {{ pair_status.level }}){% endif %}.</p>{% endif %}
+      <div class="field"><label for="pair_min_volume">Volume mínimo em 24 h (milhões de USDT)</label>
+        <input id="pair_min_volume" name="pair_min_volume" inputmode="decimal" value="{{ cfg.pair_min_volume }}" required>
+        <small>Entre 0,1 e 10 000. Ponto de partida: 20. Mais volume = ordens executadas sem mexer no preço.</small>
+        {{ recs('pair_min_volume') }}</div>
+      <div class="field"><label for="pair_max_spread">Spread máximo (%)</label>
+        <input id="pair_max_spread" name="pair_max_spread" inputmode="decimal" value="{{ cfg.pair_max_spread }}" required>
+        <small>Entre 0,001 e 2. Ponto de partida: 0,05. É a diferença entre comprar e vender; cada ciclo paga-a.</small>
+        {{ recs('pair_max_spread') }}</div>
+      <div class="field"><label for="pair_range_min">Movimento mínimo em 24 h (%)</label>
+        <input id="pair_range_min" name="pair_range_min" inputmode="decimal" value="{{ cfg.pair_range_min }}" required>
+        <small>Entre 0,1 e 30. Ponto de partida: 2. Abaixo disto o preço está parado.</small>
+        {{ recs('pair_range_min') }}</div>
+      <div class="field"><label for="pair_range_max">Movimento máximo em 24 h (%)</label>
+        <input id="pair_range_max" name="pair_range_max" inputmode="decimal" value="{{ cfg.pair_range_max }}" required>
+        <small>Entre 0,5 e 100. Ponto de partida: 8. Acima disto o preço anda depressa demais para uma grelha.</small>
+        {{ recs('pair_range_max') }}</div>
+      <div class="field"><label for="pair_range_target">Movimento ideal (%)</label>
+        <input id="pair_range_target" name="pair_range_target" inputmode="decimal" value="{{ cfg.pair_range_target }}" required>
+        <small>Tem de estar entre o mínimo e o máximo. Ponto de partida: 4. Só ordena: quanto mais perto, mais pontos.</small>
+        {{ recs('pair_range_target') }}</div>
+      <input type="hidden" name="pair_adaptive_sent" value="1">
+      <label class="switch"><span><b>Se nenhum par cumprir, alargar os critérios</b><br><small>Alarga por degraus e diz que o fez; os pares alargados vêm marcados como fora dos critérios. Desligada, ficas sem sugestões (e o painel explica porquê).</small></span>
+        <input type="checkbox" id="pair_adaptive" name="pair_adaptive" value="1" {% if cfg.pair_adaptive != '0' %}checked{% endif %}></label>
+      {{ recs('pair_adaptive') }}
+    </div>
     <div class="card">
       <h3>Categorias a evitar nas sugestões</h3>
       <p class="tag">Ao criar um bot, o painel sugere pares. Estas categorias nunca aparecem nas sugestões.</p>
@@ -254,6 +284,25 @@
       <tr><td data-label="Item">Base de dados</td><td data-label="Valor" class="num">{{ '%.1f' % sysinfo.db_mb }} MB</td></tr>
     </tbody></table></div>
     <p class="tag">Dados e chaves mudam de pasta com as variáveis <code>BOTS_DATA_DIR</code> e <code>BOTS_KEYS_DIR</code> (ver README). No Raspberry Pi há uma cópia de segurança horária da base de dados.</p>
+  </div>
+  {% set cap = sysinfo.capacity %}
+  <div class="card stack">
+    <h3>Capacidade operacional</h3>
+    <p><span class="pill {{ cap.pill }}">● {{ cap.label | upper }}</span></p>
+    {% if cap.available %}
+    <div class="bar" role="img" aria-label="Capacidade usada {{ cap.pct }}%"><i style="width:{{ cap.pct }}%;background:{{ cap.bar }}"></i><i style="flex:1;background:var(--line)"></i></div>
+    <div class="tablewrap"><table class="coins"><tbody>
+      <tr><td data-label="Item">Equipamento</td><td data-label="Valor">{{ cap.device.kind }}{% if cap.device.model %} ({{ cap.device.model }}){% endif %} <span class="tag">{{ cap.device.os }}{% if cap.device.cpus %} · {{ cap.device.cpus }} CPU{% endif %}{% if cap.device.ram_gb %} · {{ cap.device.ram_gb }} GB RAM{% endif %}</span></td></tr>
+      <tr><td data-label="Item">Bots ativos</td><td data-label="Valor" class="num">{{ cap.bots_active }}</td></tr>
+      {% for row in cap.display %}<tr><td data-label="Item">{{ row.label }}</td><td data-label="Valor" class="num">{{ row.text }}</td></tr>{% endfor %}
+      <tr><td data-label="Item">Último ciclo do corredor</td><td data-label="Valor" class="num">{{ '%.1f' % cap.cycle.dur }} s de {{ '%.0f' % cap.cycle.interval }} s · {{ cap.cycle.bots }} bot{{ '' if cap.cycle.bots == 1 else 's' }} · {{ cap.cycle.errors }} erro{{ '' if cap.cycle.errors == 1 else 's' }}</td></tr>
+      {% if cap.history %}{% set h = cap.history %}
+      <tr><td data-label="Item">Últimas {{ h.hours }} h</td><td data-label="Valor" class="num">{% if h.cpu_avg is not none %}CPU {{ '%.0f' % h.cpu_avg }} % (máx {{ '%.0f' % h.cpu_max }} %){% endif %}{% if h.ram_avg is not none %} · RAM {{ '%.0f' % h.ram_avg }} % (máx {{ '%.0f' % h.ram_max }} %){% endif %} · ciclo {{ '%.1f' % h.cycle_avg }} s (máx {{ '%.1f' % h.cycle_max }} s) · {{ h.errors }} erros · {{ h.timeouts }} timeouts</td></tr>
+      {% endif %}
+    </tbody></table></div>
+    {% endif %}
+    <p class="tag">{{ cap.advice }}</p>
+    <p class="tag">O estado junta o atraso do corredor, os erros e a fila (que pesam mais) com CPU, RAM, disco e latência. Não é um limite de bots: cada equipamento tem a sua margem. Só informa; nunca pára nem altera bots. Uma VPN dá acesso remoto seguro, mas não aumenta a capacidade: se for preciso mais, migra para um equipamento com maior capacidade (ver docs/CAPACIDADE.md).</p>
   </div>
 </section>
 

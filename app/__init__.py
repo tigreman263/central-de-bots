@@ -5,19 +5,21 @@ Só modo simulação. Nada aqui envia ordens.
 import json
 import os
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import (Flask, abort, flash, g, redirect, render_template, request,
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, request,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import alerts, analysis, botstore, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, risk, staking
+from . import alerts, analysis, balance, botstore, capacity, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, readiness, reserve, risk, staking, validation
 from . import grid as G
 from . import recommendations as rec
-from .reader import BinanceError, BinanceReader, check_permissions
+from .log import log
+from .reader import BinanceError, BinanceReader, check_permissions, check_trading_permissions
 from .trader import Trader, TraderError
 from .risk import RANK
 from .rules import EXCLUSION_CATEGORIES, RISK_PAIRS, describe_changes, parse_config
@@ -27,19 +29,19 @@ PUBLIC_ENDPOINTS = {"login", "setup", "static"}
 MAX_FAILS, FAIL_WINDOW = 5, 300
 # estado do bot: texto com símbolo (a cor nunca é o único sinal) e classe da pílula; "parado" não é erro
 STATES = {"running": ("● A trabalhar", "gain"), "paused": ("⏸ Em pausa", "warn"),
-          "pending": ("◌ A arrancar", "warn"), "stopped": ("■ Parado", "idle")}
+          "pending": ("◌ A arrancar", "warn"), "stopped": ("■ Parado", "idle"),
+          "recovering": ("⟳ A recuperar", "warn"), "stopping": ("⏳ A parar", "warn")}
 LOCAL_ADDRS = ("127.0.0.1", "::1")
 MAX_GLOBAL_FAILS = 30
-PLACEHOLDERS = {
-    "reserva": ("Reserva", "As propostas do algoritmo chegam na v0.4."),
-}
+PLACEHOLDERS = {}
 
 
 def create_app(test_config=None):
     app = Flask(__name__)
     root = Path(__file__).resolve().parent.parent
     app.config.update(DATA_DIR=str(cfgmod.data_dir()), MARKET_FETCH=None, KEY_FILE=None, READER_FACTORY=None,
-                      TESTNET_KEY_FILE=None, TELEGRAM_FILE=None, WHATSAPP_FILE=None, TRADER_FACTORY=None)
+                      TESTNET_KEY_FILE=None, TELEGRAM_FILE=None, WHATSAPP_FILE=None, TRADER_FACTORY=None,
+                      REAL_TRADING_KEY_FILE=None)
     if test_config:
         app.config.update(test_config)
 
@@ -117,9 +119,13 @@ def create_app(test_config=None):
         if "csrf" not in session:
             session["csrf"] = secrets.token_hex(16)
         stopped = False
+        stopping_n = 0
         dot = None
         if session.get("auth"):
             stopped = db.get(conn(), "emergency_stop") == "1"
+            if stopped:                                   # o estado real: ainda há bots por confirmar como parados?
+                stopping_n = sum(1 for r in botstore.all_bots(conn())
+                                 if r["status"] != "stopped" or botstore.has_pending(conn(), r))
             dot = {"alto": "alto", "atenção": "atencao", "info": "info"}.get(alerts.unseen_top(conn()))
         return {
             "csp_nonce": g.get("csp_nonce", ""),
@@ -129,7 +135,7 @@ def create_app(test_config=None):
             "csrf": session["csrf"],
             "cur": session.get("cur", "USDT"),
             "currencies": CURRENCIES,
-            "stopped": stopped,
+            "stopped": stopped, "stopping_n": stopping_n,
             "logged_in": bool(session.get("auth")),
             "endpoint": request.endpoint,
         }
@@ -260,7 +266,7 @@ def create_app(test_config=None):
             })
         return render_template("inicio.html", total=to_currency(capital, mkt, cur),
                                buckets=buckets, mkt=mkt, prices=prices, cfg=cfg,
-                               capital_label=capital_label)
+                               capital_label=capital_label, cap=capacity.view(conn()))
 
     CFG_CATS = [("capital", "Capital e saldo"), ("risco", "Risco e lucro"), ("portefolio", "Alertas de risco da carteira"),
                 ("sugestoes", "Sugestões de moedas"), ("alertas", "Notificações"), ("ligacoes", "Ligações"),
@@ -292,12 +298,16 @@ def create_app(test_config=None):
         return {"real_key": bool(keystore.load(key_file())), "testnet_key": bool(keystore.load(testnet_file())),
                 "runner": runner_state(), "emergency": db.get(conn(), "emergency_stop") == "1", "bots": len(rows),
                 "bots_active": sum(1 for r in rows if r["status"] != "stopped"), "data_dir": str(data_dir),
-                "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb}
+                "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb, "capacity": capacity.view(conn())}
 
     def config_page(cfg, cat):
         cat = cat if cat in dict(CFG_CATS) else "capital"
+        last = app.extensions.get("pair_cache") or {}
+        pair_status = {"count": len(last["data"]), "level": last.get("level", 0), "note": last.get("note", "")} \
+            if last.get("data") is not None and not last.get("error") else None
         return render_template("config.html", cfg=cfg, categories=EXCLUSION_CATEGORIES, risk_pairs=RISK_PAIRS, cat=cat,
-                               cfg_cats=CFG_CATS, form_cats=FORM_CATS, al=alert_context(), sysinfo=system_context())
+                               cfg_cats=CFG_CATS, form_cats=FORM_CATS, al=alert_context(), sysinfo=system_context(),
+                               pair_status=pair_status, pair_criteria=pairs.describe(pairs.params_from(cfg)))
 
     @app.route("/configuracao", methods=["GET", "POST"])
     def config():
@@ -311,6 +321,7 @@ def create_app(test_config=None):
                 return config_page(_merge(cfg, request.form), cat)
             if request.form.get("step") == "save":
                 db.set_many(conn(), new)
+                app.extensions.pop("pair_cache", None)                  # os critérios mudaram: as sugestões refazem-se
                 changes = describe_changes(cfg, new)
                 db.log(conn(), "Configuração guardada",
                        "; ".join(f"{a}: {b} → {c}" for a, b, c in changes))
@@ -397,7 +408,7 @@ def create_app(test_config=None):
         if request.method == "POST":
             db.set_many(conn(), {"emergency_stop": "1"})
             db.log(conn(), "PARAR TUDO", "Todos os bots parados e ordens abertas canceladas.")
-            flash("Tudo parado. O sistema está em modo seguro.", "ok")
+            flash("Paragem pedida. Os bots estão a parar: cada um só aparece como parado depois de a Testnet o confirmar.", "ok")
             return redirect(url_for("inicio"))
         active = [r for r in botstore.all_bots(conn()) if r["status"] != "stopped"]
         n_orders = sum(conn().execute("SELECT COUNT(*) FROM bot_orders WHERE bot_id = ?", (r["id"],)).fetchone()[0]
@@ -432,6 +443,9 @@ def create_app(test_config=None):
 
     def make_reader(key, secret):
         return (app.config["READER_FACTORY"] or BinanceReader)(key, secret)
+
+    def real_trading_key_file():
+        return app.config["REAL_TRADING_KEY_FILE"] or keystore.real_trading_path()
 
     def load_snapshot():
         raw = db.get(conn(), "portfolio_snapshot")
@@ -556,12 +570,15 @@ def create_app(test_config=None):
         return redirect(url_for("staking_page"))
 
     # ---------- Ai: análise completa + resumo preparado para uma IA futura ----------
+    def _ai_chat_url():
+        return db.get(conn(), "ai_chat_url") or ""
+
     @app.get("/ai")
     def ai_page():
         pf_result = refresh_portfolio()
         pf = pf_result["snap"]
         if not pf:
-            return render_template("ai.html", pf=None, result=pf_result)
+            return render_template("ai.html", pf=None, result=pf_result, ai_chat_url=_ai_chat_url())
         st_result = refresh_staking()
         summary, sugs = staking_model(st_result)
         holdings = costbasis.apply([dict(h) for h in pf["holdings"]], costbasis.load(conn()))
@@ -573,7 +590,122 @@ def create_app(test_config=None):
         cur = session.get("cur", "USDT")
         rate = rate_for(pf, cur)
         return render_template("ai.html", pf=pf, result=pf_result, report=report, rate=rate,
-                               summary_text=None if problems else text, problems=problems)
+                               summary_text=None if problems else text, problems=problems, ai_chat_url=_ai_chat_url())
+
+    @app.post("/ai/link")
+    def ai_link():
+        action = request.form.get("action", "save")
+        if action == "clear":
+            db.set_many(conn(), {"ai_chat_url": ""})
+            db.log(conn(), "Link da IA removido")
+            flash("Link removido.", "ok")
+            return redirect(url_for("ai_page"))
+        url = request.form.get("url", "").strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            flash("Esse link não parece válido. Tem de começar por http:// ou https://.", "error")
+        else:
+            db.set_many(conn(), {"ai_chat_url": url})
+            db.log(conn(), "Link da IA guardado", parsed.netloc)
+            flash("Link guardado.", "ok")
+        return redirect(url_for("ai_page"))
+
+    # ---------- Validação do projeto: checklist com evidência real (nunca inventada) ----------
+    @app.get("/validacao")
+    def validation_page():
+        return render_template("validacao.html", v=validation.view(conn()))
+
+    @app.post("/validacao/correr")
+    def validation_run():
+        if validation.is_running():
+            return jsonify(started=False, error="Já há uma validação a correr."), 409
+        modo = "tudo" if request.form.get("modo") == "tudo" else "pendentes"
+        db_path = app.config["DB_PATH"]
+        validation.begin()
+
+        def work():
+            c = db.connect(db_path)
+            try:
+                validation.run(persist_conn=c, mode=modo)
+            except Exception:
+                log.exception("validação em segundo plano falhou")
+                validation.mark_idle()
+            finally:
+                c.close()
+        threading.Thread(target=work, daemon=True).start()
+        return jsonify(started=True)
+
+    @app.get("/validacao/progresso")
+    def validation_progress():
+        return jsonify(validation.progress_snapshot())
+
+    # ---------- Reserva: o algoritmo propõe, tu decides; nunca compra nada ----------
+    @app.get("/reserva")
+    def reserva():
+        cfg = db.get_all(conn())
+        split = float(cfg["split_reserve"])
+        v = reserve.view(conn(), snapshot=load_snapshot(), split_reserve_pct=split)
+        return render_template("reserva.html", v=v, split_reserve=cfg["split_reserve"])
+
+    @app.post("/reserva/gerar")
+    def reserva_gerar():
+        try:
+            tickers = make_reader("", "").tickers_all()
+        except BinanceError as exc:
+            flash(f"Não consegui ler o mercado agora ({exc}). Tenta de novo daqui a pouco.", "error")
+            return redirect(url_for("reserva"))
+        exclusions = [c for c in db.get(conn(), "exclusions").split(",") if c]
+        created = reserve.propose(conn(), tickers, exclusions)
+        if created:
+            db.log(conn(), "Propostas da reserva geradas", ", ".join(c["coin"] for c in created))
+            flash(f"{len(created)} proposta(s) nova(s).", "ok")
+        else:
+            flash("Nenhuma moeda nova cumpre os critérios agora (ou já foram todas propostas antes).", "ok")
+        return redirect(url_for("reserva"))
+
+    @app.post("/reserva/decidir")
+    def reserva_decidir():
+        pid = request.form.get("id", type=int)
+        action = request.form.get("action")
+        note = request.form.get("note", "").strip()
+        if pid is None or action not in ("approve", "reject"):
+            abort(400)
+        result = reserve.decide(conn(), pid, action == "approve", note)
+        if result is None:
+            flash("Essa proposta já não está pendente.", "error")
+        else:
+            verb = "aprovada" if result["status"] == "approved" else "rejeitada"
+            db.log(conn(), f"Proposta da reserva {verb}", result["coin"])
+            flash(f"{result['coin']}: proposta {verb}.", "ok")
+        return redirect(url_for("reserva"))
+
+    @app.post("/reserva/remover")
+    def reserva_remover():
+        pid = request.form.get("id", type=int)
+        note = request.form.get("note", "").strip()
+        if pid is None:
+            abort(400)
+        result = reserve.remove(conn(), pid, note)
+        if result is None:
+            flash("Essa moeda já não está na reserva.", "error")
+        else:
+            db.log(conn(), "Moeda removida da reserva", result["coin"])
+            flash(f"{result['coin']}: retirada da reserva.", "ok")
+        return redirect(url_for("reserva"))
+
+    @app.post("/reserva/ajustar")
+    def reserva_ajustar():
+        pid = request.form.get("id", type=int)
+        pct = request.form.get("pct", type=float)
+        if pid is None or pct is None:
+            abort(400)
+        result = reserve.adjust(conn(), pid, pct)
+        if result is None:
+            flash("Peso inválido, ou essa moeda já não está na reserva. Tem de estar entre 0 e 100%.", "error")
+        else:
+            db.log(conn(), "Peso da reserva ajustado", f"{result['coin']}: {result['pct']:g}%")
+            flash(f"{result['coin']}: peso-alvo passou a {result['pct']:g}%.", "ok")
+        return redirect(url_for("reserva"))
 
     @app.route("/portefolio/chave", methods=["GET", "POST"])
     def portfolio_key():
@@ -614,6 +746,85 @@ def create_app(test_config=None):
                   else "Chave guardada. É só de leitura.", "ok")
             return redirect(url_for("portfolio_page") if action == "save" else url_for("portfolio_key"))
         return render_template("portfolio_key.html", masked=keystore.masked(creds[0]) if creds else None)
+
+    # ---------- conta real: só infraestrutura e guardas; nenhum bot negoceia com isto ainda ----------
+    CONFIRM_PHRASE = "ATIVAR DINHEIRO REAL"
+
+    @app.route("/conta-real", methods=["GET", "POST"])
+    def real_account():
+        cfg = db.get_all(conn())
+        enabled = cfg["real_trading_enabled"] == "1"
+        creds = keystore.load(real_trading_key_file())
+        gate = readiness.evaluate(conn(), now_ms())
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "guardar":
+                key, secret = request.form.get("api_key", "").strip(), request.form.get("api_secret", "").strip()
+                if not key or not secret:
+                    flash("Preenche a chave e o segredo.", "error")
+                    return redirect(url_for("real_account"))
+                try:
+                    restrictions = make_reader(key, secret).restrictions()
+                except BinanceError as exc:
+                    flash(str(exc), "error")
+                    return redirect(url_for("real_account"))
+                ok, problems, warnings = check_trading_permissions(restrictions)
+                if not ok:
+                    flash("Chave recusada: " + "; ".join(problems) + ". Cria na Binance uma chave só com negociação "
+                          "spot — nunca levantamentos, margem ou futuros.", "error")
+                    return redirect(url_for("real_account"))
+                keystore.save(real_trading_key_file(), key, secret)
+                db.log(conn(), "Chave de negociação real guardada", keystore.masked(key))
+                for w in warnings:
+                    flash(w, "error")
+                flash("Chave guardada. Continua sem enviar ordens: falta ativar (e cumprir o portão).", "ok")
+                return redirect(url_for("real_account"))
+            if action == "testar":
+                if not creds:
+                    flash("Ainda não há chave guardada.", "error")
+                    return redirect(url_for("real_account"))
+                try:
+                    restrictions = make_reader(*creds).restrictions()
+                except BinanceError as exc:
+                    flash(str(exc), "error")
+                    return redirect(url_for("real_account"))
+                ok, problems, warnings = check_trading_permissions(restrictions)
+                if not ok:
+                    flash("A chave guardada já não cumpre os requisitos: " + "; ".join(problems) + ".", "error")
+                else:
+                    for w in warnings:
+                        flash(w, "error")
+                    flash("Ligação bem-sucedida. A chave continua dentro do que é permitido.", "ok")
+                return redirect(url_for("real_account"))
+            if action == "remover":
+                keystore.delete(real_trading_key_file())
+                if enabled:
+                    db.set_many(conn(), {"real_trading_enabled": "0"})
+                db.log(conn(), "Chave de negociação real removida")
+                flash("Chave removida.", "ok")
+                return redirect(url_for("real_account"))
+            if action == "ativar":
+                if not creds:
+                    flash("Guarda primeiro uma chave de negociação válida.", "error")
+                elif not gate["ready"]:
+                    flash("O portão ainda não está cumprido (dias, ciclos ou comparação com comprar-e-manter). "
+                          "Não é possível ativar.", "error")
+                elif request.form.get("confirmar", "").strip() != CONFIRM_PHRASE:
+                    flash(f'Escreve exatamente "{CONFIRM_PHRASE}" para confirmar.', "error")
+                else:
+                    db.set_many(conn(), {"real_trading_enabled": "1"})
+                    db.log(conn(), "Conta real ATIVADA")
+                    flash("Ativada. (Nota: ainda não existe nenhum fluxo para criar um bot real — isso é a fase "
+                          "seguinte.)", "ok")
+                return redirect(url_for("real_account"))
+            if action == "desativar":
+                db.set_many(conn(), {"real_trading_enabled": "0"})
+                db.log(conn(), "Conta real desativada")
+                flash("Desativada.", "ok")
+                return redirect(url_for("real_account"))
+            abort(400)
+        return render_template("conta_real.html", masked=keystore.masked(creds[0]) if creds else None,
+                              enabled=enabled, gate=gate, confirm_phrase=CONFIRM_PHRASE)
 
     def placeholder(key):
         def view():
@@ -682,16 +893,24 @@ def create_app(test_config=None):
         cfg = db.get_all(conn())
         return {"max_loss_trade_pct": float(cfg["max_loss_trade"]), "pause_drawdown_pct": float(cfg["pause_drawdown"])}
 
+    def pair_selection(tickers, only=None):
+        """Sugestões com os critérios das definições e, se nada cumprir, o plano B (ver pairs.select)."""
+        cfg = db.get_all(conn())
+        excl = [c for c in cfg["exclusions"].split(",") if c]
+        return pairs.select(tickers, excl or ("stables",), pairs.params_from(cfg), only=only,
+                            adaptive=cfg.get("pair_adaptive", "1") != "0")
+
     def suggestions_cached(force=False):
         cache = app.extensions.setdefault("pair_cache", {"t": 0, "data": None, "error": None})
         if force or cache["data"] is None or time.time() - cache["t"] > 300:
             try:
                 tickers = make_reader("", "").tickers_all()
-                excl = [c for c in db.get(conn(), "exclusions").split(",") if c]
-                cache.update(t=time.time(), data=pairs.suggest(tickers, excl or ("stables",)), error=None,
-                             tickers=tickers)
+                sel = pair_selection(tickers)
+                cache.update(t=time.time(), data=sel["items"], note=sel["note"], level=sel["level"],
+                             criteria=sel["criteria"], error=None, tickers=tickers)
             except Exception as exc:
-                cache.update(t=time.time(), data=[], error=str(exc) if isinstance(exc, BinanceError) else "sem dados", tickers={})
+                cache.update(t=time.time(), data=[], note="", level=0, error=str(exc) if isinstance(exc, BinanceError) else "sem dados",
+                             tickers={})
         return cache
 
     def default_capital():
@@ -749,7 +968,9 @@ def create_app(test_config=None):
         store = app.extensions.setdefault("testnet_syms", {"t": 0, "data": None})
         if force or store["data"] is None or time.time() - store["t"] > 300:
             store.update(t=time.time(), data=make_trader().trading_symbols())
-        return pairs.for_testnet(cache["data"], store["data"])
+        sel = pair_selection(cache.get("tickers") or {}, only=store["data"])   # os critérios aplicam-se só ao que existe na Testnet
+        cache.update(note=sel["note"], level=sel["level"], criteria=sel["criteria"])
+        return pairs.for_testnet(sel["items"], store["data"])
 
     BOT_TABS = {"real": None, "simulacao": "sim", "testnet": "testnet"}
 
@@ -768,7 +989,10 @@ def create_app(test_config=None):
         shown = [it for it in rows if it["row"]["mode"] == BOT_TABS[aba]]
         tabs = [("real", "Real", counts["real"]), ("simulacao", "Simulação", counts["simulacao"]),
                 ("testnet", "Testnet", counts["testnet"])]
-        return render_template("bots.html", rows=shown, runner=runner_state(), tabs=tabs, aba=aba,
+        active_capital = sum(it["row"]["capital_usdt"] for it in rows if it["row"]["status"] != "stopped")
+        usage = balance.trading_usage(active_capital, load_snapshot(), float(db.get_all(conn())["split_trading"]))
+        gate = readiness.evaluate(conn(), now_ms()) if aba == "real" else None
+        return render_template("bots.html", rows=shown, runner=runner_state(), tabs=tabs, aba=aba, usage=usage, gate=gate,
                                n_deletable=sum(1 for it in shown if botstore.can_delete(conn(), it["row"])))
 
     @app.route("/bots/novo", methods=["GET", "POST"])
@@ -891,7 +1115,21 @@ def create_app(test_config=None):
         cmd = request.form.get("cmd")
         if cmd == "stop" and request.form.get("confirm") != "1":       # parar um bot pede sempre confirmação
             return redirect(url_for("bot_stop_confirm", bot_id=bot_id))
-        if cmd in ("pause", "resume", "stop") and botstore.get(conn(), bot_id):
+        row = botstore.get(conn(), bot_id)
+        if cmd == "activate" and row is not None:                        # ATIVAR: um bot de cada vez, nunca automático
+            eng = botstore.load_engine(conn(), bot_id)
+            if db.get(conn(), "emergency_stop") == "1":
+                flash("O sistema ainda está em modo seguro. Carrega em Reativar na barra de cima; depois ativa os bots um a um.", "error")
+            elif row["status"] != "stopped" or botstore.has_pending(conn(), row):
+                flash("Este bot ainda está a parar ou tem operações por confirmar na exchange. Tenta daqui a pouco.", "error")
+            elif eng.s.get("testnet_reset") or not eng.grid:
+                flash("Este bot não pode voltar a arrancar (a Testnet foi reposta ou nunca chegou a começar). Cria um bot novo.", "error")
+            else:
+                botstore.set_command(conn(), bot_id, cmd)
+                db.log(conn(), f"Pedido ao bot {bot_id}: ativar")
+                flash("Pedido enviado. O corredor ativa o bot no próximo minuto.", "ok")
+            return redirect(url_for("bot_detail", bot_id=bot_id))
+        if cmd in ("pause", "resume", "stop") and row:
             botstore.set_command(conn(), bot_id, cmd)
             db.log(conn(), f"Pedido ao bot {bot_id}: {cmd}")
             flash("Pedido enviado. O corredor aplica-o no próximo minuto.", "ok")

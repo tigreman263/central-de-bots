@@ -13,6 +13,8 @@ import urllib.parse
 import urllib.request
 from decimal import ROUND_HALF_UP, Decimal
 
+from . import netmeter
+
 TESTNET_BASE = "https://testnet.binance.vision"
 
 ERRORS_PT = {
@@ -89,10 +91,14 @@ class Trader:
         if params:
             url += "?" + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers=headers, method=method)
+        t0 = time.monotonic()
         try:
             with self._open(request, timeout=8) as resp:
-                return json.load(resp)
+                data = json.load(resp)
+            netmeter.record((time.monotonic() - t0) * 1000)
+            return data
         except urllib.error.HTTPError as exc:
+            netmeter.record((time.monotonic() - t0) * 1000, error=exc.code == 429 or exc.code >= 500)
             code, msg = None, ""
             try:
                 body = json.loads(exc.read().decode())
@@ -104,6 +110,7 @@ class Trader:
             raise TraderError(ERRORS_PT.get(code, f"A Testnet respondeu com erro ({exc.code}). {msg}".strip()),
                               code) from None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException):
+            netmeter.record((time.monotonic() - t0) * 1000, error=True, timeout=True)
             raise TraderError("Sem ligação à Testnet.") from None
 
     # ---- dados públicos (a Testnet é também a fonte de preços dos bots em modo testnet) ----
@@ -160,6 +167,13 @@ class Trader:
 
     def order_trades(self, symbol, order_id):
         return self._call("GET", "/api/v3/myTrades", {"symbol": symbol, "orderId": order_id}, signed=True)
+
+    def all_orders(self, symbol, start_ms=None, limit=1000):
+        """Ordens do par (abertas e fechadas, de todos os bots da conta): só para a recuperação. Peso 20 (a confirmar)."""
+        params = {"symbol": symbol, "limit": limit}
+        if start_ms is not None:
+            params["startTime"] = int(start_ms)
+        return self._call("GET", "/api/v3/allOrders", params, signed=True)
 
     def place_limit(self, symbol, side, qty, price, cid, tick=None, step=None):
         return self._call("POST", "/api/v3/order", {

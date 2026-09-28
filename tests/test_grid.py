@@ -184,6 +184,32 @@ def test_restart_resumes_exactly_without_duplicating_orders():
     assert resumed.equity(cs[-1][4]) == pytest.approx(whole.equity(cs[-1][4]))
 
 
+# ---------- "desfazer" ao pausar: repor as compras canceladas ao retomar ----------
+def test_resume_restores_the_exact_cancelled_buys_when_price_is_unchanged():
+    e = run(new_engine(), candles(flat(5)))
+    before = sorted((o["slot"], o["side"], o["price"], o["qty"]) for o in e.orders if o["side"] == "buy")
+    assert before                                                          # há mesmo compras pendentes para cancelar
+    e.command("pause", e.last_ts + MIN)
+    assert not any(o["side"] == "buy" for o in e.orders)
+    e.command("resume", e.last_ts + MIN, close=100.0)
+    after = sorted((o["slot"], o["side"], o["price"], o["qty"]) for o in e.orders if o["side"] == "buy")
+    assert after == before                                                 # exatamente as mesmas compras, nos mesmos degraus e preços
+    assert "todas repostas" in e.new_events[-1]["detail"]
+
+
+def test_resume_warns_instead_of_silently_skipping_a_buy_the_price_already_passed():
+    e = run(new_engine(), candles(flat(5)))                                # compras pendentes em 92 e 94
+    slots_before = sorted(o["slot"] for o in e.orders if o["side"] == "buy")
+    assert len(slots_before) == 2
+    e.command("pause", e.last_ts + MIN)
+    e.command("resume", e.last_ts + MIN, close=93.5)                       # preço caiu: o degrau 94 já foi "passado"
+    restored = sorted(o["slot"] for o in e.orders if o["side"] == "buy")
+    missing = [s for s in slots_before if s not in restored]
+    assert missing and len(missing) < len(slots_before)                    # repôs o que ainda faz sentido, não tudo
+    detail = e.new_events[-1]["detail"]
+    assert "não foram repostas" in detail and str(len(missing)) in detail and "preço já passou" in detail
+
+
 def test_inventory_limit_stops_buying_before_65_percent_of_capital():
     path = flat(30) + line(100, 93, 300)
     e = run(new_engine(drop_pause_pct=50), candles(path))                 # limite de inventário por defeito: 65%

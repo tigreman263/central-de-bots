@@ -95,9 +95,13 @@ def build(snap, costs_applied, staking_summary, staking_sugs, alerts_open):
 
 # ---------- resumo estruturado para uma IA futura ----------
 def ai_summary(snap, costs_applied, staking_summary, alerts_open):
-    """Resumo versionado da carteira: valores completos, sem chaves, endereços nem IDs de conta."""
-    coins, dust = [], [h for h in snap["holdings"] if h.get("priced") and h.get("dust")]
-    for h in snap["holdings"]:
+    """Resumo versionado da carteira: valores completos, sem chaves, endereços nem IDs de conta.
+
+    Lê de `costs_applied` (não de `snap["holdings"]`): é ali que `costbasis.apply` já juntou o custo médio e o
+    lucro/prejuízo não realizado a cada moeda; `snap["holdings"]` nunca tem essa informação.
+    """
+    coins, dust = [], [h for h in costs_applied if h.get("priced") and h.get("dust")]
+    for h in costs_applied:
         if not h.get("priced") or h.get("dust"):
             continue
         coins.append({"coin": h["coin"], "quantity": round(h["qty"], 8), "value_usdt": round(h["value_usdt"], 2),

@@ -145,7 +145,7 @@ def test_simulation_banner_always_visible(client, tmp_path):
 
 def test_config_shows_recommendations_for_every_field(client):
     html = client.get("/configuracao").get_data(as_text=True)
-    assert html.count('<details class="recs">') == 12  # 6 campos + 6 limiares de risco
+    assert html.count('<details class="recs">') == 18  # 6 campos + 6 limiares de risco + 6 critérios de pares
     for profile in ("Conservador", "Equilibrado", "Arrojado"):
         assert profile in html
     assert "Erro comum" in html and "Com pouco capital" in html

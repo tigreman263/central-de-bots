@@ -3,6 +3,7 @@ nenhum destes testes fala com a Binance. Critérios cobertos: retoma sem duplica
 filtros, comissões reais, reset da Testnet e isolamento das chaves."""
 import json
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -37,9 +38,19 @@ class FakeExchange:
         self.has_keys = True
         self.bal = {"USDT": 1_000_000.0, "XYZ": 0.0}
         self.crash_after_places = None                       # o processo "morre" depois de N ordens enviadas
+        # controlo de tempo e de falhas (fase 2): latência por tipo de chamada, ganchos antes/depois, offline, falha persistente
+        self.offline = False
+        self.latency = {}                                    # "get" | "post" | "delete" -> segundos (dorme mesmo)
+        self.hooks, self.after_hooks = {}, {}                # nome da chamada -> função(ex): antes do efeito / depois do efeito
+        self.persist_fail = {}                               # nome da chamada -> exceção levantada SEMPRE
+        self.fill_on_cancel = {}                             # cid -> qty (None = tudo): executa DURANTE o cancelamento
+        self.calls = {}                                      # nome da chamada -> quantas vezes foi feita
+        self.next_trade = 1000                               # ids de trade da exchange (crescem sempre, como na Binance)
+        self.visible_trades = {}                             # orderId -> n.º de trades que o myTrades já mostra (atraso/incompleto)
 
     # ---- dados públicos ----
     def klines_1m(self, symbol, start_ms=None, limit=1000):
+        self._enter("klines")
         closed = [c for c in self.cs if self.now is None or c[0] + MIN <= self.now]
         rows = [c for c in closed if start_ms is None or c[0] >= start_ms]
         rows = rows[-limit:] if start_ms is None else rows[:limit]
@@ -53,9 +64,23 @@ class FakeExchange:
 
     # ---- ajudas dos testes ----
     def _maybe_fail(self, what):
-        exc = self.fail.pop(what, None)
+        exc = self.fail.pop(what, None) or self.persist_fail.get(what)
         if exc:
             raise exc
+
+    def _enter(self, name, kind="get"):
+        """Início de uma chamada à exchange: conta, dorme (latência), corre o gancho e falha se estiver offline."""
+        self.calls[name] = self.calls.get(name, 0) + 1
+        if self.latency.get(kind):
+            time.sleep(self.latency[kind])
+        if self.hooks.get(name):
+            self.hooks[name](self)
+        if self.offline:
+            raise TraderError("Sem ligação à Testnet.")
+
+    def _leave(self, name):
+        if self.after_hooks.get(name):
+            self.after_hooks[name](self)
 
     def _record_trade(self, o, qty, price):
         quote = qty * price
@@ -72,11 +97,14 @@ class FakeExchange:
         else:
             self.bal["XYZ"] -= qty
             self.bal["USDT"] += quote - (fee if asset == "USDT" else 0.0)
+        self.next_trade += 1
         self.trades.setdefault(o["orderId"], []).append(
-            {"price": str(price), "qty": str(qty), "quoteQty": str(quote), "commission": str(fee),
-             "commissionAsset": asset})
+            {"id": self.next_trade, "tradeId": self.next_trade, "orderId": o["orderId"], "price": str(price),
+             "qty": str(qty), "quoteQty": str(quote), "commission": str(fee), "commissionAsset": asset,
+             "time": int(time.time() * 1000)})
         o["executedQty"] = str(float(o["executedQty"]) + qty)
         o["cummulativeQuoteQty"] = str(float(o["cummulativeQuoteQty"]) + quote)
+        o["updateTime"] = int(time.time() * 1000)
 
     def fill(self, cid, qty=None):
         """A Testnet executa (toda ou parte de) uma ordem nossa ao preço dela."""
@@ -98,23 +126,34 @@ class FakeExchange:
         return {k: v for k, v in o.items() if k != "fills"}
 
     def open_orders(self, symbol):
+        self._enter("open_orders")
         self._maybe_fail("open_orders")
         return [self._view(o) for o in self.orders.values() if o["status"] in ("NEW", "PARTIALLY_FILLED")]
 
     def get_order(self, symbol, cid):
+        self._enter("get_order")
         self._maybe_fail("get_order")
         if cid not in self.orders:
             raise TraderError("A ordem não existe na Testnet.", -2013)
         return self._view(self.orders[cid])
 
     def order_trades(self, symbol, order_id):
-        return self.trades.get(order_id, [])
+        self._enter("order_trades")
+        rows = self.trades.get(order_id, [])
+        n = self.visible_trades.get(order_id)
+        return list(rows if n is None else rows[:n])
+
+    def all_orders(self, symbol, start_ms=None, limit=1000):
+        self._enter("all_orders")
+        self._maybe_fail("all_orders")
+        return [self._view(o) for o in self.orders.values()][-limit:]
 
     def _locked_sells(self):
         return sum(float(o["origQty"]) - float(o["executedQty"]) for o in self.orders.values()
                    if o["side"] == "SELL" and o["status"] in ("NEW", "PARTIALLY_FILLED"))
 
     def account(self):
+        self._enter("account")
         return [{"asset": "USDT", "free": str(self.bal["USDT"]), "locked": "0"},
                 {"asset": "XYZ", "free": str(max(0.0, self.bal["XYZ"] - self._locked_sells())),
                  "locked": str(self._locked_sells())}]
@@ -134,13 +173,15 @@ class FakeExchange:
             self.rejections += 1
             raise TraderError("filtro", -1013)
         o = {"orderId": self.next_id, "clientOrderId": cid, "side": side.upper(), "type": kind.upper(),
-             "origQty": str(qty), "price": str(price), "executedQty": "0", "cummulativeQuoteQty": "0", "status": "NEW"}
+             "origQty": str(qty), "price": str(price), "executedQty": "0", "cummulativeQuoteQty": "0", "status": "NEW",
+             "time": int(time.time() * 1000), "updateTime": int(time.time() * 1000)}
         self.next_id += 1
         self.orders[cid] = o
         self.placed[cid] = self.placed.get(cid, 0) + 1
         return o
 
     def place_limit(self, symbol, side, qty, price, cid, tick=None, step=None):
+        self._enter("place", "post")
         self._maybe_fail("place")
         o = self._new(side, "limit", qty, price, cid)
         if self.crash_after_places is not None:
@@ -151,22 +192,29 @@ class FakeExchange:
         if self.ghost_next_place:                              # a ordem chegou, mas a resposta perdeu-se
             self.ghost_next_place = False
             raise TraderError("Sem ligação à Testnet.")
+        self._leave("place")                                   # a paragem pode chegar DURANTE o POST (depois do efeito)
         return {"orderId": o["orderId"], "clientOrderId": cid}
 
     def place_market(self, symbol, side, qty, cid, step=None):
+        self._enter("place", "post")
         self._maybe_fail("place")
         px = self.price()
         o = self._new(side, "market", qty, px, cid)
         self._record_trade(o, qty, px)
         o["status"] = "FILLED"
+        self._leave("place")
         return {**self._view(o), "fills": list(self.trades[o["orderId"]])}
 
     def cancel_order(self, symbol, cid):
+        self._enter("cancel", "delete")
         self._maybe_fail("cancel")
         o = self.orders.get(cid)
+        if cid in self.fill_on_cancel and o is not None and o["status"] in ("NEW", "PARTIALLY_FILLED"):
+            self.fill(cid, qty=self.fill_on_cancel.pop(cid))       # executa (toda ou parte) enquanto o DELETE viaja
         if o is None or o["status"] not in ("NEW", "PARTIALLY_FILLED"):
             raise TraderError("A ordem a cancelar não existe na Testnet.", -2011)
         o["status"] = "CANCELED"
+        o["updateTime"] = int(time.time() * 1000)
         return self._view(o)
 
 
@@ -343,8 +391,10 @@ def test_crash_3_after_partial_fill_before_saving_counts_it_once(world):
     eng = engine(conn, bid)
     resting = next(o for o in eng.orders if o["cid"] == buy)
     assert resting["state"] == "partial" and resting["exec_qty"] == pytest.approx(half)
-    assert eng.s["base"] == pytest.approx(base_before)                      # a parte executada só conta quando a ordem fecha
-    assert not [f for f in botstore.fills(conn, bid, limit=1000) if f["side"] == "buy" and f["slot"] == slot]
+    assert eng.s["base"] == pytest.approx(base_before + half * (1 - FEE))   # a parte executada conta logo, e só uma vez
+    rows = conn.execute("SELECT * FROM bot_trade_registry WHERE bot_id = ? AND cid = ?", (bid, buy)).fetchall()
+    assert len(rows) == 1 and rows[0]["qty"] == pytest.approx(half)           # registo: um único trade, apesar dos 3 passos
+    assert not [f for f in botstore.fills(conn, bid, limit=1000) if f["side"] == "buy" and f["slot"] == slot]   # o degrau só muda no fim
 
 
 def test_crash_4_after_full_fill_before_saving_counts_it_once(world):

@@ -17,6 +17,12 @@ def testnet_path():
     return config.keys_dir() / "binance_testnet.json"
 
 
+def real_trading_path():
+    """Chave da conta REAL com permissão de negociar (nunca de levantar): ficheiro próprio, nunca misturado
+    com a chave só de leitura do Portefólio. Guardar aqui não liga nada sozinho — isso exige ativação à parte."""
+    return config.keys_dir() / "binance_real_trading.json"
+
+
 def telegram_path():
     """Token do bot do Telegram (chave = token, segredo = id da conversa). Só serve para enviar mensagens."""
     return config.keys_dir() / "telegram.json"

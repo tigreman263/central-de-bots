@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Validação · Malha{% endblock %}
+{% block body %}
+<h2>Validação do projeto</h2>
+<p class="sub">Uma checklist com evidência real: cada item corre agora mesmo (testes automáticos, ficheiros que têm de existir) ou fica claramente marcado como não validado. Nada aqui é inventado por inferência.</p>
+
+{% if not v.available %}
+<div class="card"><p>Ainda não correu nenhuma validação.</p>
+  <button type="button" class="btn pri" data-val-run="pendentes">Executar validação agora</button>
+  <p class="tag">Primeira vez: corre a checklist toda (pode demorar 1 a 2 minutos).</p></div>
+{% else %}
+{% set r = v.run %}
+
+<div class="card">
+  <h2 style="margin:0 0 6px"><span class="pill {{ v.verdict_pill }}">{{ v.verdict_label }}</span></h2>
+  <p class="tag">Última validação: {{ r.ts | datefmt }} UTC · {{ r.commit }} · suite: {{ r.suite_passed }}/{{ r.suite_total }} testes ({{ r.suite_failed }} falharam) · durou {{ '%.0f' % r.duration_s }} s</p>
+  <div class="row">
+    <button type="button" class="btn pri" data-val-run="pendentes">Executar validação (só o que não está validado)</button>
+    <button type="button" class="btn" data-val-run="tudo">Validar tudo outra vez</button>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card"><h3>Total de itens</h3><div class="big num">{{ r.total_items }}</div></div>
+  <div class="card"><h3>✅ Passou</h3><div class="big num up">{{ r.counts.passou }}</div></div>
+  <div class="card"><h3>❌ Falhou</h3><div class="big num down">{{ r.counts.falhou }}</div></div>
+  <div class="card"><h3>⚠️ Parcial</h3><div class="big num">{{ r.counts.parcial }}</div></div>
+  <div class="card"><h3>❓ Não validado</h3><div class="big num">{{ r.counts.nao_validado }}</div></div>
+  <div class="card"><h3>➖ N/A</h3><div class="big num">{{ r.counts.na }}</div></div>
+</div>
+
+<div class="card">
+  <h3>{{ '❌ BLOQUEADORES DA AUDITORIA' if v.blockers else '✅ ZERO BLOQUEADORES' }}</h3>
+  {% if v.blockers %}
+  <table><thead><tr><th>Item</th><th>Motivo</th><th>Impacto</th></tr></thead><tbody>
+    {% for b in v.blockers %}
+      <tr><td><span class="pill {{ v.pills[b.status] }}">{{ v.icons[b.status] }} {{ b.name }}</span></td>
+        <td class="tag">{{ v.labels[b.status] }}{% if b.error %} — {{ b.error }}{% endif %}</td>
+        <td class="tag">{{ b.impact }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+  {% else %}<p class="tag">Nenhum requisito crítico está a falhar, parcial ou sem validar.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3>Resumo por categoria</h3>
+  <table><tbody>
+    {% for cat in v.categories %}
+      <tr><td>{{ cat.dot }} {{ cat.cat }}</td><td class="r num">{{ cat.ok }}/{{ cat.total }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+
+{% for cat in v.categories %}
+<div class="card stack">
+  <h3>{{ cat.dot }} {{ cat.cat }} — {{ cat.ok }}/{{ cat.total }} validados</h3>
+  <div class="bar" role="img" aria-label="{{ cat.pct }}% validados"><i style="width:{{ cat.pct }}%;background:var(--gain)"></i><i style="flex:1;background:var(--line)"></i></div>
+  {% for it in cat.checks %}
+  <details class="recs">
+    <summary style="cursor:pointer"><span class="pill {{ v.pills[it.status] }}">{{ v.icons[it.status] }} {{ v.labels[it.status] }}</span> {{ it.name }}{% if it.critical %}<span class="tag"> · crítico</span>{% endif %}</summary>
+    <p><b>Requisito:</b> {{ it.requirement }}</p>
+    <p class="tag"><b>Como se verificou:</b> {{ {'pytest': 'testes automáticos', 'suite': 'suite completa de testes', 'file': 'ficheiros que têm de existir', 'manual': 'admissão manual (sem teste automático)'}[it.how] }}</p>
+    <p class="tag num"><b>Evidência / testes:</b> {{ it.evidence }}</p>
+    <p class="tag num"><b>Obtido:</b> {{ it.obtained }}</p>
+    {% if it.error %}<p class="flash error">{{ it.error }}</p>{% endif %}
+    <p class="tag"><b>Impacto se não estiver certo:</b> {{ it.impact }}</p>
+    <p class="tag"><b>Bloqueia a auditoria final:</b> {{ 'SIM' if (it.id in r.blockers) else 'Não' }}</p>
+    <p class="tag num"><b>Duração desta verificação:</b> {{ '%.2f' % it.duration_s }} s</p>
+  </details>
+  {% endfor %}
+</div>
+{% endfor %}
+
+{% if v.history and v.history|length > 1 %}
+<div class="card">
+  <h3>Histórico de validações</h3>
+  <table><thead><tr><th>Data</th><th class="r">✅</th><th class="r">❌</th><th class="r">⚠️</th><th class="r">❓</th><th class="r">Bloqueadores</th><th>Estado</th></tr></thead><tbody>
+    {% for h in v.history %}
+      <tr><td class="num">{{ h.ts | datefmt }}</td><td class="r num">{{ h.passou }}</td><td class="r num">{{ h.falhou }}</td>
+        <td class="r num">{{ h.parcial }}</td><td class="r num">{{ h.nao_validado }}</td><td class="r num">{{ h.blockers }}</td>
+        <td>{{ h.verdict }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+{% endif %}
+
+<dialog id="val-modal" style="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:16px;max-width:480px;width:90vw">
+  <h3 style="margin-top:0">A validar o projeto…</h3>
+  <p class="tag" id="val-status">A começar…</p>
+  <ul id="val-list" style="list-style:none;padding:0;margin:0;max-height:50vh;overflow:auto"></ul>
+</dialog>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var ICONS = {passou: "✅", falhou: "❌", parcial: "⚠️", nao_validado: "❓", na: "➖"};
+  var modal = document.getElementById("val-modal");
+  var status = document.getElementById("val-status");
+  var list = document.getElementById("val-list");
+  var csrf = "{{ csrf }}";
+  var timer = null;
+
+  function poll() {
+    fetch("{{ url_for('validation_progress') }}", {headers: {"Accept": "application/json"}})
+      .then(function (r) { return r.json(); })
+      .then(function (p) {
+        list.innerHTML = "";
+        p.done.forEach(function (it) {
+          var li = document.createElement("li");
+          li.style.padding = "4px 0";
+          li.textContent = (ICONS[it.status] || "•") + " " + it.name;
+          list.appendChild(li);
+        });
+        if (p.current) {
+          var cur = document.createElement("li");
+          cur.style.padding = "4px 0"; cur.style.opacity = "0.7";
+          cur.textContent = "… " + p.current.name;
+          list.appendChild(cur);
+        }
+        status.textContent = p.running
+          ? ("A verificar " + p.done.length + " de " + p.total + "…")
+          : "Concluído. A atualizar a página…";
+        if (!p.running) {
+          clearInterval(timer);
+          setTimeout(function () { window.location.reload(); }, 500);
+        }
+      })
+      .catch(function () { /* falha a sondar: a próxima tentativa resolve-se sozinha */ });
+  }
+
+  function start(modo) {
+    if (!modal.open) { list.innerHTML = ""; status.textContent = "A começar…"; modal.showModal(); }
+    fetch("{{ url_for('validation_run') }}", {
+      method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: "csrf=" + encodeURIComponent(csrf) + "&modo=" + encodeURIComponent(modo)
+    }).then(function (r) {
+      if (r.status === 409) { status.textContent = "Já havia uma validação a correr; a acompanhar…"; }
+      timer = setInterval(poll, 700);
+      poll();
+    }).catch(function () {
+      status.textContent = "Não consegui começar a validação.";
+    });
+  }
+
+  document.querySelectorAll("[data-val-run]").forEach(function (btn) {
+    btn.addEventListener("click", function () { start(btn.dataset.valRun); });
+  });
+})();
+</script>
+{% endblock %}

@@ -248,8 +248,11 @@ def test_a_stopped_bot_with_orders_still_to_cancel_is_not_deleted(world):
     botstore.set_command(conn, bid, "stop")
     tick(conn, ex, bid, 2)
     row = botstore.get(conn, bid)
-    assert row["status"] == "stopped" and botstore.has_pending(conn, row)
+    assert row["status"] == "stopping" and botstore.has_pending(conn, row)          # ainda NÃO está parado: falta cancelar
     assert botstore.delete(conn, bid) is False                                      # ainda há ordens abertas na exchange
+    tick(conn, ex, bid, 3)                                                          # a rede voltou: cancela, fecha e confirma
+    row = botstore.get(conn, bid)
+    assert row["status"] == "stopped" and botstore.can_delete(conn, row)
 
 
 def test_deleting_a_bot_keeps_its_twin_and_removes_its_alerts(world):
@@ -299,8 +302,9 @@ def test_deleting_warns_when_the_bot_still_holds_coin(panel):
     eng = engine(conn, bid)
     eng.command("stop", T0, close=50.0)                                             # abaixo do custo: fica com a moeda
     botstore.save_engine(conn, eng)
-    assert eng.status == "stopped" and eng.s["base"] > 0
-    tick(conn, ex, bid, 3)                                                          # o corredor cancela o que ficou aberto
+    assert eng.status == "stopping" and eng.s["base"] > 0                           # cancela e só depois dá por parado
+    tick(conn, ex, bid, 3)                                                          # o corredor cancela o que ficou aberto e confirma
+    assert botstore.get(conn, bid)["status"] == "stopped" and engine(conn, bid).s["stop_outcome"] == "position_kept"
     assert botstore.can_delete(conn, botstore.get(conn, bid))
     assert "ainda tem" in c.get(f"/bots/{bid}/apagar").get_data(as_text=True)
 

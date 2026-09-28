@@ -18,6 +18,13 @@ DEFAULTS = {
     "alert_telegram_min": "atenção",
     "alert_whatsapp_on": "1",
     "alert_whatsapp_min": "alto",
+    # critérios das sugestões de pares (ver pairs.py); volume em milhões de USDT
+    "pair_min_volume": "20", "pair_max_spread": "0.05", "pair_range_min": "2", "pair_range_max": "8",
+    "pair_range_target": "4", "pair_adaptive": "1",
+    # PARAR TUDO: segundos até alertar (CRÍTICO) que a paragem ainda não está confirmada; não declara nada parado
+    "emergency_deadline_s": "120",
+    "ai_chat_url": "",   # link da IA que treinaste (aba Ai); vazio = ainda não configurado
+    "real_trading_enabled": "0",   # dinheiro real: só "1" depois do portão (docs/DESIGN.md) e ativação explícita
 }
 
 DEFAULTS.update({k: f"{v:.10g}" for k, v in RISK_DEFAULTS.items()})

@@ -15,7 +15,9 @@
   <div class="cur" role="group" aria-label="Moeda">
     {% for c in currencies %}<a href="{{ url_for('set_currency', code=c) }}" {% if c == cur %}aria-current="true"{% endif %}>{{ c }}</a>{% endfor %}
   </div>
-  {% if stopped %}
+  {% if stopped and stopping_n %}
+    <a class="stop resume" href="{{ url_for('resume') }}">PARAR TUDO ATIVO · A PARAR {{ stopping_n }} bot{{ '' if stopping_n == 1 else 's' }} · Reativar</a>
+  {% elif stopped %}
     <a class="stop resume" href="{{ url_for('resume') }}">SISTEMA PARADO · Reativar</a>
   {% else %}
     <a class="stop" href="{{ url_for('stop_all') }}">PARAR TUDO</a>

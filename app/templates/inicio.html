@@ -10,6 +10,14 @@
 </div>
 
 <div class="card">
+  <h3>Capacidade operacional</h3>
+  <p><span class="pill {{ cap.pill }}">● {{ cap.label | upper }}</span>
+  {% if cap.available and cap.fresh %}<span class="tag">{{ cap.bots_active }} bot{{ '' if cap.bots_active == 1 else 's' }} ativo{{ '' if cap.bots_active == 1 else 's' }} · CPU {{ cap.display[0].text }} · RAM {{ cap.display[1].text }} · Runner {{ cap.display[3].text }}</span>{% endif %}</p>
+  {% if cap.available and cap.fresh %}<div class="bar" role="img" aria-label="Capacidade usada {{ cap.pct }}%"><i style="width:{{ cap.pct }}%;background:{{ cap.bar }}"></i><i style="flex:1;background:var(--line)"></i></div>{% endif %}
+  <p class="tag">{{ cap.advice }} <a href="{{ url_for('config', cat='sistema') }}">Ver detalhes</a></p>
+</div>
+
+<div class="card">
   <h3>Divisão do saldo</h3>
   <div class="bar" role="img" aria-label="{% for b in buckets %}{{ b.label }} {{ '%g' % b.pct }}%{% if not loop.last %}, {% endif %}{% endfor %}">
     {% for b in buckets %}<i style="width:{{ b.pct }}%;background:var(--{{ b.color }})"></i>{% endfor %}

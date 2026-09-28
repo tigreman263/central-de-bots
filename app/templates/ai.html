@@ -56,14 +56,55 @@
 </div>
 
 <div class="card">
-  <h3>Conversa com a IA</h3>
-  <p class="tag">Ainda não ligada. Quando existir, receberá só o resumo abaixo (valores completos, sem chaves nem IDs de conta), o envio será sempre manual e visível, e a resposta nunca vira ordem: a IA não tem ferramentas nem acesso à chave.</p>
-  <div class="row"><input placeholder="Pergunta sobre a tua carteira…" aria-label="Pergunta" disabled style="max-width:420px"><button class="btn" disabled>Perguntar</button></div>
+  <h3>Perguntar à IA</h3>
   {% if problems %}
     <p class="flash error" role="alert">O resumo foi bloqueado porque {{ problems | join('; ') }}.</p>
   {% else %}
-  <details style="margin-top:12px"><summary class="tag" style="cursor:pointer">Ver exatamente o que iria ser enviado</summary>
-    <pre class="jsonbox">{{ summary_text }}</pre></details>
+  <p class="tag">Sem chave nem chamada automática: nada sai desta página por si só. Escreve a pergunta, carrega em "Copiar" e depois em "Abrir a minha IA" para colares lá. Só vai o resumo abaixo (valores completos, sem chaves nem IDs de conta); a resposta nunca vira ordem — decides sempre tu.</p>
+  <div class="row"><input id="ai-question" placeholder="Pergunta sobre a tua carteira…" aria-label="Pergunta" style="max-width:420px" value="O que achas desta carteira? O que farias de diferente?"><button type="button" class="btn pri" id="ai-copy">1. Copiar pergunta + resumo</button>
+    {% if ai_chat_url %}<a class="btn" href="{{ ai_chat_url }}" target="_blank" rel="noopener noreferrer">2. Abrir a minha IA ↗</a>{% endif %}</div>
+  <p class="tag" id="ai-copy-status" role="status" aria-live="polite"></p>
+  <details style="margin-top:12px"><summary class="tag" style="cursor:pointer">Ver exatamente o que seria copiado</summary>
+    <pre class="jsonbox" id="ai-summary-json">{{ summary_text }}</pre></details>
+  <details style="margin-top:12px" {% if not ai_chat_url %}open{% endif %}>
+    <summary class="tag" style="cursor:pointer">{{ 'Alterar o link da IA' if ai_chat_url else 'Configurar o link da IA (podes mudar quando quiseres)' }}</summary>
+    <p class="tag">Cola aqui o link da conversa, projeto ou GPT que treinaste para isto (claude.ai ou outro serviço).</p>
+    <form method="post" action="{{ url_for('ai_link') }}" class="row" style="margin-top:8px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="url" name="url" placeholder="https://claude.ai/project/…" value="{{ ai_chat_url }}" aria-label="Link da IA" style="max-width:420px" required>
+      <button class="btn small">Guardar</button>
+      {% if ai_chat_url %}<button class="btn small danger" name="action" value="clear">Remover</button>{% endif %}
+    </form>
+  </details>
+  <script nonce="{{ csp_nonce }}">
+  (function () {
+    var btn = document.getElementById("ai-copy");
+    var status = document.getElementById("ai-copy-status");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var question = (document.getElementById("ai-question").value || "").trim();
+      var summary = document.getElementById("ai-summary-json").textContent;
+      var text = (question ? question + "\n\n" : "") + "Resumo da carteira (JSON, gerado pela Malha, sem chaves nem IDs):\n" + summary;
+      var done = function (ok) {
+        status.textContent = ok ? "Copiado. Cola numa conversa com o Claude." : "Não consegui copiar; seleciona o texto acima manualmente.";
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok);
+      }
+    });
+  })();
+  </script>
   {% endif %}
 </div>
 {% endif %}

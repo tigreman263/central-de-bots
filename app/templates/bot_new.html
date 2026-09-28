@@ -14,8 +14,11 @@
 {% if cache.error %}
   <p class="flash error" role="alert">Não consegui ler os pares da Binance ({{ cache.error }}). Tenta de novo daqui a pouco.</p>
 {% endif %}
+{% if cache.note %}
+  <p class="flash warnbar" role="status">{{ cache.note }} <a href="{{ url_for('config', cat='sugestoes') }}">Rever critérios</a></p>
+{% endif %}
 {% if not cache.data and not cache.error %}
-  <div class="card"><p class="tag">Nenhum par passa os filtros agora. Os filtros são pontos de partida: volume acima de 20 M USDT, spread até 0,05% e movimento de 2% a 8% em 24 h.</p></div>
+  <div class="card"><p class="tag">Nenhum par passa os filtros agora{% if cache.criteria %} ({{ cache.criteria }}){% endif %}. Os critérios são pontos de partida e podes mudá-los em <a href="{{ url_for('config', cat='sugestoes') }}">Configuração &gt; Sugestões de moedas</a>.</p></div>
 {% endif %}
 
 {% if cache.data %}
@@ -29,7 +32,7 @@
       <label class="sug" style="display:block;cursor:pointer">
         <div class="row" style="justify-content:space-between">
           <span><input type="radio" name="pair" value="{{ s.pair }}" {% if loop.first %}checked{% endif %}> <b>{{ s.pair }}</b></span>
-          <span class="pill gain num">{{ '%.0f' % s.score }} pts</span>
+          <span>{% if s.meets is defined and not s.meets %}<span class="pill warn">fora dos critérios</span> {% endif %}<span class="pill gain num">{{ '%.0f' % s.score }} pts</span></span>
         </div>
         <ul class="reasons">{% for w in s.why %}<li>{{ w }}.</li>{% endfor %}</ul>
       </label>

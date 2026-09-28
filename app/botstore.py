@@ -1,5 +1,8 @@
 """Persistência dos bots: tudo na base de dados. Reiniciar o processo retoma exatamente onde ficou."""
 import json
+import secrets
+import sqlite3
+import time
 from datetime import datetime, timezone
 
 from .engine import Engine, PENDING, RUNNING, PAUSED, STOPPED
@@ -21,6 +24,14 @@ CREATE TABLE IF NOT EXISTS bot_fills (
     id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, ts INTEGER NOT NULL, slot INTEGER NOT NULL,
     side TEXT NOT NULL, price REAL NOT NULL, qty REAL NOT NULL, fee REAL NOT NULL, pnl REAL
 );
+CREATE TABLE IF NOT EXISTS bot_trade_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, symbol TEXT NOT NULL, order_id TEXT,
+    cid TEXT NOT NULL, trade_id TEXT NOT NULL, side TEXT NOT NULL, qty REAL NOT NULL, price REAL NOT NULL,
+    quote_qty REAL NOT NULL, commission REAL NOT NULL DEFAULT 0, commission_asset TEXT, trade_time INTEGER,
+    processed_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'booked',
+    UNIQUE (bot_id, symbol, cid, trade_id)
+);
+CREATE INDEX IF NOT EXISTS ix_registry_bot_cid ON bot_trade_registry (bot_id, cid);
 CREATE TABLE IF NOT EXISTS bot_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, ts INTEGER NOT NULL, kind TEXT NOT NULL,
     detail TEXT NOT NULL
@@ -38,7 +49,8 @@ MIGRATIONS = {
     "bots": [("mode", "TEXT NOT NULL DEFAULT 'sim'"), ("source", "TEXT NOT NULL DEFAULT 'mainnet'"),
              ("twin_of", "INTEGER")],
     "bot_orders": [("cid", "TEXT"), ("oid", "TEXT"), ("state", "TEXT"), ("otype", "TEXT"),
-                   ("exec_qty", "REAL NOT NULL DEFAULT 0"), ("slots", "TEXT")],
+                   ("exec_qty", "REAL NOT NULL DEFAULT 0"), ("slots", "TEXT"),
+                   ("booked_qty", "REAL NOT NULL DEFAULT 0"), ("pending_since", "INTEGER")],
 }
 
 
@@ -59,13 +71,48 @@ def events_since(conn, bot_id, since_ms):
     return conn.execute("SELECT * FROM bot_events WHERE bot_id = ? AND ts >= ? ORDER BY ts", (bot_id, since_ms)).fetchall()
 
 
+def _needs_migration(conn):
+    """Uma base de dados que já tem bots mas ainda não tem o registo de trades (ou as colunas novas)."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "bots" not in tables:
+        return False                                     # base nova: nada a migrar
+    if "bot_trade_registry" not in tables:
+        return True
+    return "booked_qty" not in {r[1] for r in conn.execute("PRAGMA table_info(bot_orders)")}
+
+
+def _backup_before_migration(conn):
+    """Cópia consistente da base de dados ANTES de a migrar (ao lado do ficheiro). Devolve o caminho, ou None."""
+    path = next((r[2] for r in conn.execute("PRAGMA database_list") if r[1] == "main"), "")
+    if not path:
+        return None
+    dest = f"{path}.antes-do-registo-{time.strftime('%Y%m%d-%H%M%S')}.bak"
+    out = sqlite3.connect(dest)
+    try:
+        conn.backup(out)
+    finally:
+        out.close()
+    return dest
+
+
 def init(conn):
+    conn.commit()
+    if _needs_migration(conn):
+        _backup_before_migration(conn)
     conn.executescript(SCHEMA)
     for table, cols in MIGRATIONS.items():
         have = {r["name"] if hasattr(r, "keys") else r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         for name, decl in cols:
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    # bots que já existiam: o registo de trades começa agora. O que já foi contabilizado antes fica de fora da procura
+    # de execuções por contabilizar (senão contava-se duas vezes).
+    now_ms = int(time.time() * 1000)
+    for r in conn.execute("SELECT id, state FROM bots WHERE mode = 'testnet'").fetchall():
+        st = json.loads(r[1] or "{}")
+        if "registry_from" not in st:
+            st["registry_from"] = now_ms
+            conn.execute("UPDATE bots SET state = ? WHERE id = ?", (json.dumps(st), r[0]))
     conn.commit()
 
 
@@ -73,11 +120,12 @@ def create(conn, pair, capital, rules, params=None, mode="sim", source=None, twi
     """mode: "sim" (simulador) ou "testnet" (ordens na Testnet). source: de onde vêm as velas (testnet => testnet)."""
     source = source or ("testnet" if mode == "testnet" else "mainnet")
     eng = Engine.new(pair, capital, rules, params, mode)
+    state = {"uid": secrets.token_hex(3), "registry_from": int(time.time() * 1000)} if mode == "testnet" else {}
     cur = conn.execute(
-        "INSERT INTO bots (pair, status, capital_usdt, params, rules, created_ts, mode, source, twin_of) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO bots (pair, status, capital_usdt, params, rules, created_ts, mode, source, twin_of, state) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pair, PENDING, capital, json.dumps(eng.p), json.dumps(rules),
-         datetime.now(timezone.utc).isoformat(timespec="seconds"), mode, source, twin_of))
+         datetime.now(timezone.utc).isoformat(timespec="seconds"), mode, source, twin_of, json.dumps(state)))
     conn.commit()
     return cur.lastrowid
 
@@ -101,14 +149,28 @@ def load_engine(conn, bot_id):
         if o["cid"]:                                     # ordem de um bot em modo testnet
             d.update(cid=o["cid"], oid=o["oid"], state=o["state"], type=o["otype"] or "limit",
                      exec_qty=o["exec_qty"] or 0.0)
+            if o["pending_since"] is not None:
+                d["pending_since"] = o["pending_since"]
             if o["slots"]:
                 d["slots"] = json.loads(o["slots"])
         orders.append(d)
     eng = Engine({"id": row["id"], "mode": row["mode"], "pair": row["pair"], "status": row["status"], "reason": row["reason"],
                   "capital_usdt": row["capital_usdt"], "params": json.loads(row["params"]),
                   "rules": json.loads(row["rules"]), "grid": json.loads(row["grid"]) if row["grid"] else None,
-                  "state": json.loads(row["state"]), "orders": orders, "last_ts": row["last_ts"]})
+                  "state": json.loads(row["state"]), "orders": orders, "last_ts": row["last_ts"],
+                  "seen": _load_registry(conn, bot_id) if row["mode"] == "testnet" else {}})
     return eng
+
+
+def _load_registry(conn, bot_id):
+    """Trades já contabilizados deste bot: id da ordem -> {id do trade: execução} (no formato da Binance)."""
+    seen = {}
+    for r in conn.execute("SELECT cid, trade_id, qty, price, quote_qty, commission, commission_asset, trade_time "
+                          "FROM bot_trade_registry WHERE bot_id = ?", (bot_id,)):
+        seen.setdefault(r["cid"], {})[r["trade_id"]] = {
+            "id": r["trade_id"], "qty": r["qty"], "price": r["price"], "quoteQty": r["quote_qty"],
+            "commission": r["commission"], "commissionAsset": r["commission_asset"], "time": r["trade_time"]}
+    return seen
 
 
 def save_engine(conn, eng, warning=""):
@@ -119,11 +181,18 @@ def save_engine(conn, eng, warning=""):
                       eng.last_ts, warning, eng.id))
         conn.execute("DELETE FROM bot_orders WHERE bot_id = ?", (eng.id,))
         conn.executemany(
-            "INSERT INTO bot_orders (bot_id, slot, side, price, qty, active_from, cid, oid, state, otype, exec_qty, slots) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO bot_orders (bot_id, slot, side, price, qty, active_from, cid, oid, state, otype, exec_qty, slots, "
+            "booked_qty, pending_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(eng.id, o["slot"], o["side"], o["price"], o["qty"], o["active_from"], o.get("cid"),
               None if o.get("oid") is None else str(o["oid"]), o.get("state"), o.get("type"),
-              o.get("exec_qty", 0.0), json.dumps(o["slots"]) if o.get("slots") else None) for o in eng.orders])
+              o.get("exec_qty", 0.0), json.dumps(o["slots"]) if o.get("slots") else None,
+              eng.booked(o["cid"]) if o.get("cid") else 0.0, o.get("pending_since")) for o in eng.orders])
+        conn.executemany(                                   # INSERT simples: um trade repetido falha alto, nunca conta duas vezes
+            "INSERT INTO bot_trade_registry (bot_id, symbol, order_id, cid, trade_id, side, qty, price, quote_qty, commission, "
+            "commission_asset, trade_time, processed_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(eng.id, t["symbol"], t["order_id"], t["cid"], t["trade_id"], t["side"], t["qty"], t["price"], t["quote_qty"],
+              t["commission"], t["commission_asset"], t["trade_time"], t["processed_at"], t["status"])
+             for t in eng.new_trades])
         conn.executemany("INSERT INTO bot_fills (bot_id, ts, slot, side, price, qty, fee, pnl) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                          [(eng.id, f["ts"], f["slot"], f["side"], f["price"], f["qty"], f["fee"], f["pnl"]) for f in eng.new_fills])
         conn.executemany("INSERT INTO bot_events (bot_id, ts, kind, detail) VALUES (?, ?, ?, ?)",
@@ -134,7 +203,29 @@ def save_engine(conn, eng, warning=""):
                          [(eng.id, c[0], c[1], c[2], c[3], c[4]) for c in eng.new_candles])
         if eng.new_candles:                               # só guarda os últimos 8 dias de velas por bot
             conn.execute("DELETE FROM bot_candles WHERE bot_id = ? AND ts < ?", (eng.id, eng.new_candles[-1][0] - CANDLE_KEEP_MS))
-    eng.new_fills, eng.new_events, eng.new_equity, eng.new_candles = [], [], [], []
+    eng.new_fills, eng.new_events, eng.new_equity, eng.new_candles, eng.new_trades = [], [], [], [], []
+
+
+def claims(conn, eng):
+    """O que os OUTROS bots da Testnet dizem ter: (moeda deste par, USDT). A conta é uma só: o saldo é de todos."""
+    base = cash = 0.0
+    for r in conn.execute("SELECT pair, state FROM bots WHERE mode = 'testnet' AND id != ?", (eng.id,)):
+        st = json.loads(r["state"] or "{}")
+        cash += (st.get("quote") or 0.0) + (st.get("reserve") or 0.0)
+        if r["pair"] == eng.pair:
+            base += st.get("base") or 0.0
+    return base, cash
+
+
+def link_prefix(conn, bot_id, uid):
+    """Liga um UID antigo (de uma cópia de segurança ou de uma base recriada) a este bot: as suas ordens passam a ser
+    reconhecidas e limpas na próxima recuperação. Só deve usar-se com um UID que se sabe ser deste bot."""
+    eng = load_engine(conn, bot_id)
+    if eng is None:
+        return False
+    eng.link_uid(uid)
+    save_engine(conn, eng, "")
+    return True
 
 
 def has_pending(conn, row):
@@ -143,12 +234,14 @@ def has_pending(conn, row):
         return False
     if json.loads(row["state"] or "{}").get("cancel_queue"):
         return True
-    return conn.execute("SELECT 1 FROM bot_orders WHERE bot_id = ? AND state = 'sending' LIMIT 1",
+    return conn.execute("SELECT 1 FROM bot_orders WHERE bot_id = ? AND state IN ('sending', 'settling') LIMIT 1",
                         (row["id"],)).fetchone() is not None
 
 
 def set_command(conn, bot_id, cmd):
-    conn.execute("UPDATE bots SET command = ? WHERE id = ? AND status != 'stopped'", (cmd, bot_id))
+    """Pedido do painel ao bot. Um bot parado só aceita `activate` (o botão ATIVAR)."""
+    conn.execute("UPDATE bots SET command = ? WHERE id = ? AND (status != 'stopped' OR ? = 'activate')",
+                 (cmd, bot_id, cmd))
     conn.commit()
 
 
@@ -222,6 +315,7 @@ def stats(eng, now_ms, curve=None):
         "max_drawdown_pct": _max_drawdown_pct(curve, eng.capital),
         "stop_distance_pct": (close - eng.grid["stop"]) / close * 100,
         "never_below_cost": bool(eng.p.get("never_sell_below_cost")),
+        "position": eng.position(),                              # total / negociável / residual (pó com custo) / desconhecida
     }
 
 
@@ -231,7 +325,9 @@ def can_delete(conn, row):
 
 
 def delete(conn, bot_id):
-    """Apaga o bot e todos os seus dados (ordens, execuções, eventos, capital, velas e alertas). False se não puder."""
+    """Apaga o bot e os seus dados (ordens, execuções, eventos, capital, velas e alertas). False se não puder.
+
+    O registo de trades (bot_trade_registry) fica: é auditoria e nunca se apaga."""
     row = get(conn, bot_id)
     if row is None or not can_delete(conn, row):
         return False

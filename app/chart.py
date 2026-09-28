@@ -6,7 +6,8 @@ WINDOWS = {"6h": 6, "24h": 24, "7d": 168}
 MAX_POINTS = 360
 GRACE_MS = 120_000    # execuções e eventos dos últimos 2 minutos (ainda sem vela fechada) ficam na ponta direita
 EVENT_LABELS = {"setup": "montagem", "pause": "pausa", "recenter": "recentragem", "stop": "stop", "reset": "reset",
-                "blocked": "compras suspensas", "guard": "ordem recusada", "error": "erro"}
+                "blocked": "compras suspensas", "guard": "ordem recusada", "error": "erro",
+                "recovery": "recuperação", "recon": "reconciliação"}
 
 
 def _hm(ts_ms):

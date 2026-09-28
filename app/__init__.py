@@ -3,7 +3,6 @@
 Só modo simulação. Nada aqui envia ordens.
 """
 import json
-import math
 import os
 import secrets
 import threading
@@ -169,6 +168,8 @@ def create_app(test_config=None):
 
     @app.template_filter("price")
     def price(value):
+        if value is None:
+            return "sem preço"
         return f"{value:,.2f}".replace(",", " ").replace(".", ",")
 
     def get_market():
@@ -1033,12 +1034,7 @@ def create_app(test_config=None):
             pair = request.form.get("pair", "")
             twin = request.form.get("twin") == "1"                     # duplicado no outro tipo (sim <-> Testnet)
             never_below = request.form.get("never_below_cost") == "1"
-            try:
-                capital = float(request.form.get("capital", "").replace(",", "."))
-            except ValueError:
-                capital = 0.0
-            if not math.isfinite(capital):        # float("nan")/float("inf") passam no parse sem levantar ValueError
-                capital = 0.0
+            capital = db.parse_decimal_pt(request.form.get("capital")) or 0.0
             chosen = next((s for s in cache["data"] if s["pair"] == pair), None)
             if not chosen or capital <= 0:
                 flash("Escolhe um dos pares sugeridos e indica um capital maior que zero.", "error")
@@ -1107,9 +1103,12 @@ def create_app(test_config=None):
             return redirect(url_for("bot_detail", bot_id=bot_id))
         eng = botstore.load_engine(conn(), bot_id)
         if request.method == "POST":
-            botstore.delete(conn(), bot_id)
-            db.log(conn(), "Bot apagado", f"Bot {bot_id} {row['pair']} ({row['mode']})")
-            flash(f"Bot {row['pair']} apagado. Os dados dele deixaram de estar guardados.", "ok")
+            if botstore.delete(conn(), bot_id):
+                db.log(conn(), "Bot apagado", f"Bot {bot_id} {row['pair']} ({row['mode']})")
+                flash(f"Bot {row['pair']} apagado. Os dados dele deixaram de estar guardados.", "ok")
+            else:                              # deixou de poder apagar-se entre mostrar a confirmação e submeter
+                flash("Já não dá para apagar este bot (deixou de estar parado ou ficou com algo por fechar). "
+                      "Verifica o estado dele.", "error")
             return redirect(url_for("bots", aba="testnet" if row["mode"] == "testnet" else "simulacao"))
         return render_template("bot_delete_confirm.html", bots=[(row, eng)], aba="", back=url_for("bot_detail", bot_id=bot_id))
 
@@ -1120,11 +1119,13 @@ def create_app(test_config=None):
         rows = [r for r in botstore.deletable(conn()) if mode is None or r["mode"] == mode]
         back = url_for("bots", aba=aba) if aba in BOT_TABS else url_for("bots")
         if request.method == "POST":
-            for r in rows:
-                botstore.delete(conn(), r["id"])
-            db.log(conn(), "Bots parados apagados", ", ".join(f"{r['id']} {r['pair']}" for r in rows) or "nenhum")
-            flash(f"{len(rows)} bot{'' if len(rows) == 1 else 's'} parado{'' if len(rows) == 1 else 's'} apagado"
-                  f"{'' if len(rows) == 1 else 's'}.", "ok")
+            done = [r for r in rows if botstore.delete(conn(), r["id"])]
+            db.log(conn(), "Bots parados apagados", ", ".join(f"{r['id']} {r['pair']}" for r in done) or "nenhum")
+            n = len(done)
+            msg = f"{n} bot{'' if n == 1 else 's'} parado{'' if n == 1 else 's'} apagado{'' if n == 1 else 's'}."
+            if n < len(rows):
+                msg += f" {len(rows) - n} já não puderam ser apagados (deixaram de estar parados entretanto)."
+            flash(msg, "ok" if n == len(rows) else "error")
             return redirect(back)
         if not rows:
             flash("Não há bots parados para apagar.", "ok")

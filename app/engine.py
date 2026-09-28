@@ -683,7 +683,9 @@ class Engine:
         elif cmd == "resume" and self.status == PAUSED:
             self.status, self.reason = RUNNING, ""
             s["buys_blocked"], s["consec_buys"], s["below_stop"], s["refused"] = None, 0, 0, []
-            s["day_start_equity"] = self.equity(close or s["last_close"])
+            # day_start_equity NÃO se repõe aqui: senão o limite diário de perda (secção 2/5 do DESIGN.md) fica-se por
+            # pausar-e-retomar repetidas vezes no mesmo dia sem nunca travar a perda a sério. Só a mudança de dia (acima,
+            # em process_candle) ou a ativação de um bot parado reinicia este marcador.
             paused_slots = s.pop("paused_buy_slots", [])
             self._sync_orders(close or s["last_close"], ts + MIN)
             restored = {o["slot"] for o in self.orders if o["side"] == "buy"}

@@ -36,6 +36,8 @@ def test_cost_basis_save_edit_delete_and_validation(env):
     assert "guardado: 0.8 USDT" in set_cost(c, "ADA", "0.8")            # editar
     assert "preço médio maior que zero" in set_cost(c, "ADA", "-1")
     assert "preço médio maior que zero" in set_cost(c, "ADA", "abc")
+    assert "preço médio maior que zero" in set_cost(c, "ADA", "inf")      # float("inf") > 0 é True: não pode passar
+    assert "preço médio maior que zero" in set_cost(c, "ADA", "nan")
     html = c.post("/portefolio/custo", data={"csrf": csrf(c, "/portefolio"), "coin": "ADA", "action": "delete"},
                   follow_redirects=True).get_data(as_text=True)
     assert "removido" in html

@@ -1,6 +1,8 @@
 """Custo médio por moeda, escrito à mão (a API da Binance não o fornece). Moedas sem custo: 'sem custo'."""
 from datetime import datetime, timezone
 
+from . import db
+
 FEE = 0.001  # estimativa de comissão ao vender (0,1%)
 
 
@@ -23,11 +25,8 @@ def delete(conn, coin):
 
 def parse_price(raw):
     """Aceita '0,75' ou '0.75'. Devolve float > 0 ou None."""
-    try:
-        v = float((raw or "").replace(",", ".").strip())
-    except ValueError:
-        return None
-    return v if v > 0 else None
+    v = db.parse_decimal_pt(raw)
+    return v if v is not None and v > 0 else None
 
 
 def apply(holdings, costs):

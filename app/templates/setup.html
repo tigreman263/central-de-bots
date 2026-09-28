@@ -6,10 +6,10 @@
   <p class="sub">Cria a palavra-passe do painel. Guarda-a num sítio seguro: sem ela não se vê nada.</p>
   <form method="post" class="stack">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label for="password">Palavra-passe (mínimo 8 caracteres)</label>
-    <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required autofocus>
+    <label for="password">Palavra-passe (mínimo 12 caracteres)</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required autofocus>
     <label for="password2">Repete a palavra-passe</label>
-    <input id="password2" name="password2" type="password" autocomplete="new-password" minlength="8" required>
+    <input id="password2" name="password2" type="password" autocomplete="new-password" minlength="12" required>
     <button class="btn pri">Criar palavra-passe</button>
   </form>
 </div>

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Laboratório de Cenários · Malha{% endblock %}
+{% block body %}
+<h2>Laboratório de Cenários</h2>
+<p class="sub">Desenha um percurso de mercado (alta, baixa ou lateral) e vê como a grelha e as proteções de risco reagem —
+sem tocar em bots a sério. Corre o motor real por cima de velas sintéticas; nunca conta para o portão da conta real,
+as estatísticas nem a capacidade do sistema.</p>
+
+<form method="post" class="stack">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="card stack">
+    <h3 style="margin:0">Bot a testar</h3>
+    {% if bots %}
+    <label style="cursor:pointer"><input type="radio" name="bot_src" value="existente" checked> Usar a configuração de um bot que já tens</label>
+    <select name="bot_id">
+      {% for b in bots %}<option value="{{ b.id }}">{{ b.pair }} · {{ 'Testnet' if b.mode == 'testnet' else 'simulação' }} · {{ '%g' % b.capital_usdt }} USDT</option>{% endfor %}
+    </select>
+    <label style="cursor:pointer"><input type="radio" name="bot_src" value="novo"> Configuração nova</label>
+    {% else %}
+    <input type="hidden" name="bot_src" value="novo">
+    <p class="tag">Ainda não tens bots — usa uma configuração nova.</p>
+    {% endif %}
+    <div class="row">
+      <div class="field"><label for="par">Par (configuração nova)</label>
+        <input id="par" name="par" value="BTCUSDT" placeholder="BTCUSDT"></div>
+      <div class="field"><label for="capital">Capital (USDT)</label>
+        <input id="capital" name="capital" inputmode="decimal" value="{{ default_capital }}"></div>
+    </div>
+  </div>
+
+  <div class="card stack">
+    <h3 style="margin:0">Guião do percurso</h3>
+    <p class="tag">Cada fase é um trecho do percurso. Deixa "tipo" em branco para não usar essa linha.</p>
+    {% for i in range(6) %}
+    <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+      <div class="field"><label for="tipo{{ i }}">Fase {{ i + 1 }}</label>
+        <select id="tipo{{ i }}" name="phase_tipo">
+          <option value="">(não usar)</option>
+          <option value="alta">Alta</option>
+          <option value="lateral">Lateral</option>
+          <option value="baixa">Baixa</option>
+        </select></div>
+      <div class="field"><label for="forca{{ i }}">Força</label>
+        <select id="forca{{ i }}" name="phase_forca">
+          {% for p in presets %}<option value="{{ p }}" {% if p == 'moderada' %}selected{% endif %}>{{ p | capitalize }} (~{{ presets[p] }}%/dia)</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="custom{{ i }}">ou %/dia à mão</label>
+        <input id="custom{{ i }}" name="phase_custom" inputmode="decimal" placeholder="opcional" size="8"></div>
+      <div class="field"><label for="dur{{ i }}">Duração</label>
+        <input id="dur{{ i }}" name="phase_dur" inputmode="decimal" value="{{ '1' if i == 0 else '' }}" size="5"></div>
+      <div class="field"><label for="unid{{ i }}">Unidade</label>
+        <select id="unid{{ i }}" name="phase_unidade">
+          <option value="horas">Horas</option>
+          <option value="dias" selected>Dias</option>
+          <option value="minutos">Minutos</option>
+        </select></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card stack">
+    <h3 style="margin:0">Repetição</h3>
+    <div class="row">
+      <div class="field"><label for="seed">Seed (mesma seed + mesmo guião = mesmo resultado)</label>
+        <input id="seed" name="seed" placeholder="{{ seed_placeholder }}"></div>
+      <label style="cursor:pointer;align-self:center"><input type="checkbox" name="no_seed" value="1"> Sem seed fixa (aleatório de cada vez)</label>
+    </div>
+    <div class="field"><label for="name">Nome do ensaio (opcional)</label><input id="name" name="name" placeholder="ex.: queda forte de 20%"></div>
+  </div>
+  <div class="row"><button class="btn pri">Correr o guião</button></div>
+</form>
+
+{% if viewing %}
+<h3>Resultado: {{ viewing.name }}</h3>
+<p class="sub">{{ viewing.pair }} · capital {{ '%g' % viewing.capital }} USDT · seed {{ viewing.seed }} · {{ viewing.created_ts }}</p>
+<div class="cards">
+  <div class="card"><h3>Variação final</h3><div class="big num {{ 'up' if viewing.result.final_pct >= 0 else 'down' }}">{{ '%+.2f' % viewing.result.final_pct }}%</div>
+    <p class="tag">{{ '%.2f' % viewing.result.final_equity }} USDT no fim do guião</p></div>
+  <div class="card"><h3>Ciclos / pior operação</h3><div class="big num" style="font-size:24px">{{ viewing.result.cycles }} / {{ '%.2f' % viewing.result.worst_loss_pct }}%</div>
+    <p class="tag">ciclos completos · maior perda numa só operação</p></div>
+  <div class="card"><h3>Estado final</h3><div class="big num" style="font-size:22px"><span class="pill {{ states[viewing.result.status][1] }}">{{ states[viewing.result.status][0] }}</span></div>
+    <p class="tag">{{ viewing.result.reason or 'chegou ao fim do guião sem parar' }}</p></div>
+  <div class="card"><h3>Proteções disparadas</h3><div class="big num" style="font-size:20px">{{ viewing.result.protections | join(', ') if viewing.result.protections else 'nenhuma' }}</div>
+    <p class="tag">pausa / stop / compras suspensas, se algum disparou durante o guião</p></div>
+</div>
+
+<div class="card"><h3>Fases do guião</h3>
+  <div class="tablewrap"><table class="coins"><thead><tr><th>Tipo</th><th>Força</th><th class="r">Duração</th></tr></thead><tbody>
+    {% for f in viewing.script %}
+      <tr><td data-label="Tipo">{{ f.tipo | capitalize }}</td>
+        <td data-label="Força">{{ ('%.1f%%/dia à mão' % f.custom) if f.custom is not none else f.forca }}</td>
+        <td data-label="Duração" class="r">{{ f.dur | round(2) }} {{ f.unidade }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</div>
+
+{% if pchart %}
+<div class="card">
+  <h3>Preço e negócios do ensaio</h3>
+  <svg class="pchart" viewBox="0 0 {{ pchart.w }} {{ pchart.h }}" width="100%" role="img" aria-labelledby="lb-t">
+    <title id="lb-t">Preço e negócios do ensaio {{ viewing.name }}</title>
+    {% if pchart.band %}<rect class="ch-band" x="{{ pchart.ml }}" y="{{ pchart.band.y }}" width="{{ pchart.w - pchart.ml - pchart.mr }}" height="{{ pchart.band.h }}"/>{% endif %}
+    {% for t in pchart.yticks %}<text class="ch-ax" x="{{ pchart.ml - 6 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.label }}</text>{% endfor %}
+    {% for t in pchart.ticks %}<text class="ch-ax" x="{{ t.x }}" y="{{ pchart.h - 8 }}" text-anchor="{{ 'start' if loop.first else 'end' if loop.last else 'middle' }}">{{ t.label }}</text>{% endfor %}
+    {% for l in pchart.levels %}
+      <line class="ch-lvl {{ l.side or '' }}" x1="{{ pchart.ml }}" y1="{{ l.y }}" x2="{{ pchart.w - pchart.mr }}" y2="{{ l.y }}"/>
+    {% endfor %}
+    {% if pchart.stop %}<line class="ch-stop" x1="{{ pchart.ml }}" y1="{{ pchart.stop.y }}" x2="{{ pchart.w - pchart.mr }}" y2="{{ pchart.stop.y }}"/>{% endif %}
+    <polyline class="ch-price" points="{{ pchart.line }}"/>
+    <circle class="ch-last" cx="{{ pchart.last[0] }}" cy="{{ pchart.last[1] }}" r="3.5"/>
+    {% for m in pchart.marks %}
+      <g><title>{{ m.tip }}</title>
+      {% if m.kind == 'buy' %}<polygon class="ch-buy" points="{{ m.x }},{{ m.y - 7 }} {{ m.x - 6.5 }},{{ m.y + 5.5 }} {{ m.x + 6.5 }},{{ m.y + 5.5 }}"/>
+      {% elif m.kind == 'sell' %}<polygon class="ch-sell" points="{{ m.x }},{{ m.y + 7 }} {{ m.x - 6.5 }},{{ m.y - 5.5 }} {{ m.x + 6.5 }},{{ m.y - 5.5 }}"/>
+      {% else %}<path class="ch-liq" d="M{{ m.x - 5 }},{{ m.y - 5 }} L{{ m.x + 5 }},{{ m.y + 5 }} M{{ m.x + 5 }},{{ m.y - 5 }} L{{ m.x - 5 }},{{ m.y + 5 }}"/>{% endif %}
+      </g>
+    {% endfor %}
+  </svg>
+  <p class="tag">Mostra, no máximo, os últimos 7 dias do guião.</p>
+</div>
+{% endif %}
+
+{% if viewing.equity_chart %}
+<div class="card">
+  <h3>Capital ao longo do guião</h3>
+  <svg viewBox="0 0 {{ viewing.equity_chart.w }} {{ viewing.equity_chart.h }}" width="100%" role="img" aria-label="Capital ao longo do ensaio">
+    <polyline points="{{ viewing.equity_chart.line }}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    <circle cx="{{ viewing.equity_chart.end[0] }}" cy="{{ viewing.equity_chart.end[1] }}" r="4.5" fill="var(--accent)"/>
+  </svg>
+</div>
+{% endif %}
+
+<div class="card"><h3>Eventos</h3>
+  {% for e in viewing.result.events %}<p style="margin:4px 0">{{ e.detail }}</p>{% else %}<p class="tag">Sem eventos.</p>{% endfor %}
+</div>
+{% endif %}
+
+<div class="card"><h3>Ensaios guardados</h3>
+  {% if runs %}<div class="tablewrap"><table class="coins"><thead><tr><th>Nome</th><th>Par</th><th>Seed</th><th>Quando</th><th></th></tr></thead><tbody>
+    {% for r in runs %}
+      <tr><td data-label="Nome"><a href="{{ url_for('laboratorio', ver=r.id) }}">{{ r.name }}</a></td>
+        <td data-label="Par">{{ r.pair }}</td><td data-label="Seed" class="num">{{ r.seed }}</td>
+        <td data-label="Quando" class="num">{{ r.created_ts }}</td>
+        <td><form method="post" action="{{ url_for('laboratorio_delete', run_id=r.id) }}" style="display:inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small danger">Apagar</button></form></td></tr>
+    {% endfor %}</tbody></table></div>{% else %}<p class="tag">Ainda sem ensaios guardados.</p>{% endif %}
+</div>
+{% endblock %}

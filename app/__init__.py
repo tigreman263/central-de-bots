@@ -15,7 +15,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, r
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import alerts, analysis, balance, botstore, capacity, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, readiness, reserve, risk, staking, validation
+from . import alerts, analysis, balance, botstore, capacity, chart, config as cfgmod, explain, costbasis, db, keystore, layout, market, notify, pairs, portfolio, readiness, reserve, risk, scenario, staking, validation
 from . import grid as G
 from . import recommendations as rec
 from .log import log
@@ -53,6 +53,7 @@ def create_app(test_config=None):
     _c = db.connect(app.config["DB_PATH"])
     alerts.init(_c)
     botstore.init(_c)
+    scenario.init(_c)
     _c.close()
 
     key_file = data_dir / "secret_key"
@@ -1180,6 +1181,89 @@ def create_app(test_config=None):
         compare = [{"testnet": by_id[it["row"]["twin_of"]], "sim": it} for it in items
                    if it["row"]["twin_of"] and it["row"]["twin_of"] in by_id]
         return render_template("stats.html", items=items, rate=rate, runner=runner_state(), compare=compare)
+
+    # ---------- Laboratório de Cenários: testa um bot contra um percurso de mercado à tua escolha ----------
+    # à parte de propósito: fica em scenario_runs, nunca na tabela `bots` — um ensaio nunca conta para o portão
+    # da conta real, as estatísticas nem a capacidade do sistema.
+    def parse_script(form):
+        script = []
+        for tipo, forca, custom, dur, unidade in zip(
+                form.getlist("phase_tipo"), form.getlist("phase_forca"), form.getlist("phase_custom"),
+                form.getlist("phase_dur"), form.getlist("phase_unidade")):
+            if tipo not in scenario.DIR or unidade not in scenario.UNIT_TO_MIN:
+                continue
+            dur_v = db.parse_decimal_pt(dur) or 1.0
+            if dur_v <= 0:
+                continue
+            custom_v = db.parse_decimal_pt(custom) if custom else None
+            script.append({"tipo": tipo, "forca": forca if forca in scenario.PRESETS else "moderada",
+                           "custom": custom_v, "dur": dur_v, "unidade": unidade})
+        return script
+
+    @app.route("/laboratorio", methods=["GET", "POST"])
+    def laboratorio():
+        if request.method == "POST":
+            src = request.form.get("bot_src", "novo")
+            if src == "existente":
+                row = botstore.get(conn(), request.form.get("bot_id", type=int) or -1)
+                if row is None:
+                    flash("Esse bot já não existe. Escolhe outro, ou usa uma configuração nova.", "error")
+                    return redirect(url_for("laboratorio"))
+                eng = botstore.load_engine(conn(), row["id"])
+                pair, capital, rules, params = eng.pair, eng.capital, eng.rules, eng.p
+            else:
+                pair = request.form.get("par", "BTCUSDT").strip().upper()
+                capital = db.parse_decimal_pt(request.form.get("capital")) or 0.0
+                if not pair.isalnum() or capital <= 0:
+                    flash("Escolhe um par e indica um capital maior que zero.", "error")
+                    return redirect(url_for("laboratorio"))
+                if capital > MAX_BOT_CAPITAL:
+                    flash(f"Capital acima do limite ({MAX_BOT_CAPITAL:,.0f} USDT). Confirma que não foi engano.", "error")
+                    return redirect(url_for("laboratorio"))
+                params = bot_params()
+                try:
+                    rules = make_reader("", "").symbol_rules(pair)
+                except BinanceError as exc:
+                    flash(f"Não consegui ler as regras deste par na Binance ({exc}). Tenta de novo daqui a pouco.", "error")
+                    return redirect(url_for("laboratorio"))
+                if rules.get("status") != "TRADING":
+                    flash(f"O par {pair} não está em negociação normal na Binance.", "error")
+                    return redirect(url_for("laboratorio"))
+            script = parse_script(request.form)
+            if not script:
+                flash("Adiciona pelo menos uma fase válida ao guião.", "error")
+                return redirect(url_for("laboratorio"))
+            try:
+                start_price = float(make_reader("", "").ticker24(pair)["lastPrice"])
+            except BinanceError as exc:
+                flash(f"Não consegui ler o preço atual de {pair} ({exc}). Tenta de novo daqui a pouco.", "error")
+                return redirect(url_for("laboratorio"))
+            no_seed = request.form.get("no_seed") == "1"
+            seed = "" if no_seed else (request.form.get("seed", "").strip() or scenario.new_seed())
+            candles, bands = scenario.generate_candles(script, seed or None, start_price, now_ms())
+            result = scenario.run_engine(pair, capital, rules, params, candles)
+            name = request.form.get("name", "").strip() or f"{pair} · {len(script)} fase(s)"
+            run_id = scenario.save(conn(), name, pair, capital, rules, params, script,
+                                   seed or "sem seed fixa", bands, result)
+            db.log(conn(), "Ensaio de cenário criado", f"{name}: {result['final_pct']:+.2f}%")
+            return redirect(url_for("laboratorio", ver=run_id))
+        view_id = request.args.get("ver", type=int)
+        viewing = scenario.get(conn(), view_id) if view_id else None
+        pchart = None
+        if viewing:
+            candles = [tuple(c) for c in viewing["result"]["candles"]]
+            viewing["equity_chart"] = chart_path([(e["ts"], e["equity"]) for e in viewing["result"]["equity"]])
+            pchart = chart.build(candles, viewing["result"]["grid"], viewing["result"]["fills"],
+                                 viewing["result"]["events"], viewing["result"]["orders"], window="7d")
+        return render_template("laboratorio.html", bots=botstore.all_bots(conn()), runs=scenario.list_runs(conn()),
+                               viewing=viewing, pchart=pchart, default_capital=default_capital(),
+                               presets=scenario.PRESETS, seed_placeholder=scenario.new_seed())
+
+    @app.post("/laboratorio/<int:run_id>/apagar")
+    def laboratorio_delete(run_id):
+        scenario.delete(conn(), run_id)
+        flash("Ensaio apagado.", "ok")
+        return redirect(url_for("laboratorio"))
 
     def chart_path(curve, w=560, h=180):
         if len(curve) < 2:

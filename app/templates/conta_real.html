@@ -36,6 +36,7 @@
   </tbody></table>
   {% else %}<p class="tag">Ainda não há nenhum bot na Testnet com uma grelha montada.</p>{% endif %}
   <p class="tag">Falta sempre confirmar à mão: a chave restrita a um IP (a Binance não garante isso por código) e que estes {{ gate.days_target }}+ dias foram mesmo contínuos, não uma sequência de testes.</p>
+  <p class="tag">Para reiniciar a contagem do zero (apaga os bots da Testnet), vai a <a href="{{ url_for('config', cat='sistema') }}">Configuração › Sistema</a>.</p>
 </div>
 
 <div class="card">

@@ -3,6 +3,7 @@
 Só modo simulação. Nada aqui envia ordens.
 """
 import json
+import math
 import os
 import secrets
 import threading
@@ -33,6 +34,7 @@ STATES = {"running": ("● A trabalhar", "gain"), "paused": ("⏸ Em pausa", "wa
           "recovering": ("⟳ A recuperar", "warn"), "stopping": ("⏳ A parar", "warn")}
 LOCAL_ADDRS = ("127.0.0.1", "::1")
 MAX_GLOBAL_FAILS = 30
+MAX_BOT_CAPITAL = 1_000_000   # USDT; só um travão de bom senso contra um erro de dactilografia, não um limite de negócio
 PLACEHOLDERS = {}
 
 
@@ -298,7 +300,8 @@ def create_app(test_config=None):
         return {"real_key": bool(keystore.load(key_file())), "testnet_key": bool(keystore.load(testnet_file())),
                 "runner": runner_state(), "emergency": db.get(conn(), "emergency_stop") == "1", "bots": len(rows),
                 "bots_active": sum(1 for r in rows if r["status"] != "stopped"), "data_dir": str(data_dir),
-                "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb, "capacity": capacity.view(conn())}
+                "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb, "capacity": capacity.view(conn()),
+                "gate": readiness.evaluate(conn(), now_ms())}
 
     def config_page(cfg, cat):
         cat = cat if cat in dict(CFG_CATS) else "capital"
@@ -394,6 +397,20 @@ def create_app(test_config=None):
         else:
             abort(400)
         return redirect(url_for("config", cat="alertas"))
+
+    @app.post("/configuracao/reiniciar-portao")
+    def reset_gate_route():
+        if request.form.get("confirmar", "").strip() != "REINICIAR":
+            flash('Escreve exatamente "REINICIAR" para confirmar — isto apaga os bots da Testnet.', "error")
+            return redirect(url_for("config", cat="sistema"))
+        result = readiness.reset_gate(conn(), now_ms())
+        if not result["ok"]:
+            flash("Não posso reiniciar: pára primeiro estes bots da Testnet (PARAR TUDO ou um a um): " +
+                  ", ".join(result["blocked"]) + ".", "error")
+        else:
+            db.log(conn(), "Portão da conta real reiniciado", f"{result['deleted']} bot(s) da Testnet apagado(s)")
+            flash(f"Portão reiniciado. {result['deleted']} bot(s) da Testnet apagado(s); a contagem recomeça agora.", "ok")
+        return redirect(url_for("config", cat="sistema"))
 
     def _merge(cfg, form):
         merged = dict(cfg)
@@ -613,12 +630,16 @@ def create_app(test_config=None):
     # ---------- Validação do projeto: checklist com evidência real (nunca inventada) ----------
     @app.get("/validacao")
     def validation_page():
-        return render_template("validacao.html", v=validation.view(conn()))
+        return render_template("validacao.html", v=validation.view(conn()), running=validation.is_running())
 
     @app.post("/validacao/correr")
     def validation_run():
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         if validation.is_running():
-            return jsonify(started=False, error="Já há uma validação a correr."), 409
+            if is_ajax:
+                return jsonify(started=False, error="Já há uma validação a correr."), 409
+            flash("Já há uma validação a correr.", "error")
+            return redirect(url_for("validation_page"))
         modo = "tudo" if request.form.get("modo") == "tudo" else "pendentes"
         db_path = app.config["DB_PATH"]
         validation.begin()
@@ -633,7 +654,10 @@ def create_app(test_config=None):
             finally:
                 c.close()
         threading.Thread(target=work, daemon=True).start()
-        return jsonify(started=True)
+        if is_ajax:
+            return jsonify(started=True)
+        flash("Validação a começar em segundo plano. Atualiza a página daqui a pouco para ver o resultado.", "ok")
+        return redirect(url_for("validation_page"))
 
     @app.get("/validacao/progresso")
     def validation_progress():
@@ -1013,9 +1037,14 @@ def create_app(test_config=None):
                 capital = float(request.form.get("capital", "").replace(",", "."))
             except ValueError:
                 capital = 0.0
+            if not math.isfinite(capital):        # float("nan")/float("inf") passam no parse sem levantar ValueError
+                capital = 0.0
             chosen = next((s for s in cache["data"] if s["pair"] == pair), None)
             if not chosen or capital <= 0:
                 flash("Escolhe um dos pares sugeridos e indica um capital maior que zero.", "error")
+                return redirect(url_for("bot_new", modo=mode))
+            if capital > MAX_BOT_CAPITAL:
+                flash(f"Capital acima do limite ({MAX_BOT_CAPITAL:,.0f} USDT). Confirma que não foi engano.", "error")
                 return redirect(url_for("bot_new", modo=mode))
             try:
                 if twin and mode == "sim":                              # o duplicado na Testnet obriga o par a existir lá

@@ -29,6 +29,15 @@ def tune(conn, bid, **overrides):
     botstore.save_engine(conn, eng)
 
 
+def stop_cleanly(conn, bid):
+    """Pára um bot de teste sem deixar nada pendente na exchange (a compra inicial fica sempre 'sending' logo
+    após setup(); um bot real só chega a 'stopped' depois de tudo isso se resolver)."""
+    eng = botstore.load_engine(conn, bid)
+    eng.orders = []
+    eng.status = "stopped"
+    botstore.save_engine(conn, eng)
+
+
 def test_no_testnet_bots_means_nothing_is_ready(tmp_path):
     conn = fresh_conn(tmp_path)
     g = readiness.evaluate(conn, now_ms=10 * DAY)
@@ -93,3 +102,42 @@ def test_a_bot_that_never_set_up_a_grid_is_ignored_not_counted_as_zero(tmp_path)
     botstore.create(conn, "BTCUSDT", 100.0, RULES, {}, mode="testnet")   # ainda "pending", sem grelha
     g = readiness.evaluate(conn, now_ms=100 * DAY)
     assert g["bots"] == [] and g["ready"] is False
+
+
+# ---------- reiniciar o portão ----------
+def test_reset_gate_deletes_every_testnet_bot_and_marks_the_new_start(tmp_path):
+    conn = fresh_conn(tmp_path)
+    bid = make_bot(conn, ts=0)
+    stop_cleanly(conn, bid)
+    result = readiness.reset_gate(conn, now_ms=50 * DAY)
+    assert result == {"ok": True, "blocked": [], "deleted": 1}
+    assert botstore.all_bots(conn) == []
+    assert db.get(conn, "gate_reset_ts") == str(50 * DAY)
+
+
+def test_reset_gate_refuses_and_deletes_nothing_if_any_testnet_bot_is_still_active(tmp_path):
+    conn = fresh_conn(tmp_path)
+    stopped = make_bot(conn, pair="BTCUSDT", ts=0)
+    stop_cleanly(conn, stopped)
+    make_bot(conn, pair="ETHUSDT", ts=0)                          # este fica "running": bloqueia tudo
+    result = readiness.reset_gate(conn, now_ms=50 * DAY)
+    assert result["ok"] is False and result["blocked"] == ["ETHUSDT"]
+    assert len(botstore.all_bots(conn)) == 2                      # nada apagado, nem o que já podia
+    assert db.get(conn, "gate_reset_ts", "0") == "0"
+
+
+def test_reset_gate_never_touches_simulation_bots(tmp_path):
+    conn = fresh_conn(tmp_path)
+    make_bot(conn, mode="sim", ts=0)                               # "running", mas é simulação: não bloqueia a Testnet
+    result = readiness.reset_gate(conn, now_ms=50 * DAY)
+    assert result == {"ok": True, "blocked": [], "deleted": 0}
+    assert len(botstore.all_bots(conn)) == 1
+
+
+def test_evaluate_floors_days_at_the_reset_point_even_for_an_older_bot(tmp_path):
+    conn = fresh_conn(tmp_path)
+    bid = make_bot(conn, ts=0)                                     # bot "nasceu" no instante 0
+    tune(conn, bid, cycles=150, quote=130.0, base=0.0, reserve=0.0, last_close=110.0, start_price=100.0)
+    db.set_many(conn, {"gate_reset_ts": str(40 * DAY)})            # mas o portão foi reiniciado no dia 40
+    g = readiness.evaluate(conn, now_ms=45 * DAY)
+    assert g["days"] == pytest.approx(5.0)                         # conta só desde o reinício, não desde o dia 0

@@ -25,6 +25,7 @@ DEFAULTS = {
     "emergency_deadline_s": "120",
     "ai_chat_url": "",   # link da IA que treinaste (aba Ai); vazio = ainda não configurado
     "real_trading_enabled": "0",   # dinheiro real: só "1" depois do portão (docs/DESIGN.md) e ativação explícita
+    "gate_reset_ts": "0",          # portão: reiniciado manualmente em Configuração; 0 = nunca reiniciado
 }
 
 DEFAULTS.update({k: f"{v:.10g}" for k, v in RISK_DEFAULTS.items()})

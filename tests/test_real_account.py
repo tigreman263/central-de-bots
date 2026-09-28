@@ -4,9 +4,11 @@ import re
 
 import pytest
 
-from app import create_app, db, market, readiness
+from app import botstore, create_app, db, market, readiness
 from app.reader import check_trading_permissions
 from test_portfolio import GOOD, FakeReader, World
+
+RULES = {"tick": 0.01, "step": 0.001, "min_notional": 5.0}
 
 GOOD_TRADING = {"enableReading": True, "ipRestrict": True, "enableSpotAndMarginTrading": True}
 
@@ -152,3 +154,77 @@ def test_real_account_routes_require_login_and_csrf(env):
     assert anon.get("/conta-real").status_code == 302
     assert anon.post("/conta-real").status_code in (302, 400, 403)
     assert c.post("/conta-real", data={"csrf": "errado", "action": "ativar"}).status_code == 400
+
+
+# ---------- reiniciar o portão (Configuração > Sistema) ----------
+def make_testnet_bot(conn, pair="BTCUSDT", ts=0, price=100.0, capital=100.0, mode="testnet"):
+    bid = botstore.create(conn, pair, capital, RULES, {}, mode=mode)
+    eng = botstore.load_engine(conn, bid)
+    eng.setup(ts, price)
+    botstore.save_engine(conn, eng)
+    return bid
+
+
+def stop_cleanly(conn, bid):
+    eng = botstore.load_engine(conn, bid)
+    eng.orders = []
+    eng.status = "stopped"
+    botstore.save_engine(conn, eng)
+
+
+def test_reset_gate_requires_the_exact_confirmation_phrase(env):
+    c, world, app, tmp = env
+    conn = db.connect(app.config["DB_PATH"])
+    make_testnet_bot(conn)
+    r = c.post("/configuracao/reiniciar-portao", data={"csrf": csrf(c, "/conta-real"), "confirmar": "sim"},
+               follow_redirects=True)
+    assert "Escreve exatamente" in r.get_data(as_text=True)
+    assert len(botstore.all_bots(db.connect(app.config["DB_PATH"]))) == 1
+
+
+def test_reset_gate_refuses_when_a_testnet_bot_is_still_active(env):
+    c, world, app, tmp = env
+    conn = db.connect(app.config["DB_PATH"])
+    make_testnet_bot(conn)                                       # fica "running" logo a seguir ao setup()
+    r = c.post("/configuracao/reiniciar-portao", data={"csrf": csrf(c, "/conta-real"), "confirmar": "REINICIAR"},
+               follow_redirects=True)
+    html = r.get_data(as_text=True)
+    assert "pára primeiro estes bots" in html and "BTCUSDT" in html
+    assert len(botstore.all_bots(db.connect(app.config["DB_PATH"]))) == 1
+
+
+def test_reset_gate_deletes_stopped_testnet_bots_and_restarts_the_clock(env):
+    c, world, app, tmp = env
+    conn = db.connect(app.config["DB_PATH"])
+    bid = make_testnet_bot(conn)
+    stop_cleanly(conn, bid)
+    r = c.post("/configuracao/reiniciar-portao", data={"csrf": csrf(c, "/conta-real"), "confirmar": "REINICIAR"},
+               follow_redirects=True)
+    assert "Portão reiniciado" in r.get_data(as_text=True)
+    conn2 = db.connect(app.config["DB_PATH"])
+    assert botstore.all_bots(conn2) == []
+    assert db.get_all(conn2)["gate_reset_ts"] != "0"
+
+
+def test_reset_gate_only_blocks_on_active_testnet_bots_simulation_is_irrelevant(env):
+    c, world, app, tmp = env
+    conn = db.connect(app.config["DB_PATH"])
+    make_testnet_bot(conn, mode="sim")                            # nunca conta nem bloqueia o portão da Testnet
+    r = c.post("/configuracao/reiniciar-portao", data={"csrf": csrf(c, "/conta-real"), "confirmar": "REINICIAR"},
+               follow_redirects=True)
+    assert "Portão reiniciado" in r.get_data(as_text=True)
+    conn2 = db.connect(app.config["DB_PATH"])
+    assert len(botstore.all_bots(conn2)) == 1 and botstore.all_bots(conn2)[0]["mode"] == "sim"   # não tocou no bot de simulação
+
+
+def test_reset_gate_route_requires_login_and_csrf(env):
+    c, world, app, tmp = env
+    anon = app.test_client()
+    assert anon.post("/configuracao/reiniciar-portao").status_code in (302, 400, 403)
+    assert c.post("/configuracao/reiniciar-portao", data={"csrf": "errado", "confirmar": "REINICIAR"}).status_code == 400
+
+
+def test_config_page_shows_the_gate_and_a_link_to_the_real_account(env):
+    c, world, app, tmp = env
+    html = c.get("/configuracao?cat=sistema").get_data(as_text=True)
+    assert "Portão da Conta Real" in html and "dias" in html and "ciclos" in html

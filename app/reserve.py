@@ -172,9 +172,13 @@ def with_targets(approved, snapshot, split_reserve_pct):
         else:
             held_usdt = 0.0 if snapshot else None
             locked_usdt = 0.0 if snapshot else None
-        target_usdt = reserve_total * r["suggested_pct"] / 100 if reserve_total is not None else None
+        # reserve_total == 0 (carteira real ligada mas a somar 0 USDT) é um caso degenerado: um "alvo" de 0 seria
+        # enganador (parece um número calculado a sério), por isso trata-se como "sem dados", tal como sem chave —
+        # os dois campos ficam sempre consistentes entre si (ou os dois têm valor, ou os dois ficam a None).
+        has_reserve = reserve_total is not None and reserve_total > 0
+        target_usdt = reserve_total * r["suggested_pct"] / 100 if has_reserve else None
         gap = (target_usdt - held_usdt) if (target_usdt is not None and held_usdt is not None) else None
-        held_pct = (held_usdt / reserve_total * 100) if (reserve_total and held_usdt is not None) else None
+        held_pct = (held_usdt / reserve_total * 100) if (has_reserve and held_usdt is not None) else None
         out.append({**r, "held_qty": h["qty"] if h else (0.0 if snapshot else None), "held_usdt": held_usdt,
                     "locked_usdt": locked_usdt, "held_pct_of_reserve": held_pct,
                     "target_usdt": target_usdt, "gap_usdt": gap})

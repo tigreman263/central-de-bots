@@ -304,6 +304,18 @@
     <p class="tag">{{ cap.advice }}</p>
     <p class="tag">O estado junta o atraso do corredor, os erros e a fila (que pesam mais) com CPU, RAM, disco e latência. Não é um limite de bots: cada equipamento tem a sua margem. Só informa; nunca pára nem altera bots. Uma VPN dá acesso remoto seguro, mas não aumenta a capacidade: se for preciso mais, migra para um equipamento com maior capacidade (ver docs/CAPACIDADE.md).</p>
   </div>
+  {% set gate = sysinfo.gate %}
+  <div class="card stack">
+    <h3>Portão da Conta Real</h3>
+    <p class="tag">{{ gate.days }}/{{ gate.days_target }} dias · {{ gate.cycles }}/{{ gate.cycles_target }} ciclos · {% if gate.beats_hold is none %}sem bots para comparar{% else %}{{ 'bate' if gate.beats_hold else 'não bate' }} comprar-e-manter{% endif %}. <a href="{{ url_for('real_account') }}">Ver a Conta Real</a>.</p>
+    <p class="tag">Reiniciar apaga <b>todos os bots da Testnet</b> (o registo de trades fica, é auditoria) e volta a contar os dias e os ciclos a partir de agora. Só funciona se todos já estiverem parados e sem nada pendente na exchange.</p>
+    <form method="post" action="{{ url_for('reset_gate_route') }}" class="stack">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="reiniciar-portao">Escreve "REINICIAR"</label>
+        <input id="reiniciar-portao" name="confirmar" autocomplete="off" placeholder="REINICIAR"></div>
+      <div class="row"><button class="btn danger">Reiniciar o portão</button></div>
+    </form>
+  </div>
 </section>
 
 <script nonce="{{ csp_nonce }}">

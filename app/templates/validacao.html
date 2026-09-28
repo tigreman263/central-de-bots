@@ -4,10 +4,21 @@
 <h2>Validação do projeto</h2>
 <p class="sub">Uma checklist com evidência real: cada item corre agora mesmo (testes automáticos, ficheiros que têm de existir) ou fica claramente marcado como não validado. Nada aqui é inventado por inferência.</p>
 
+<div id="val-root" data-running="{{ 'true' if running else 'false' }}">
+{% if running %}
+<p class="flash" role="status">Uma validação está a decorrer agora (talvez arrancada noutro separador). <button type="button" class="linkbtn" id="val-follow">Acompanhar</button></p>
+{% endif %}
+
 {% if not v.available %}
-<div class="card"><p>Ainda não correu nenhuma validação.</p>
-  <button type="button" class="btn pri" data-val-run="pendentes">Executar validação agora</button>
-  <p class="tag">Primeira vez: corre a checklist toda (pode demorar 1 a 2 minutos).</p></div>
+<div class="card"><p>{{ 'A primeira validação está a decorrer — ainda não guardou nenhum resultado.' if running else 'Ainda não correu nenhuma validação.' }}</p>
+  {% if not running %}
+  <form method="post" action="{{ url_for('validation_run') }}" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="modo" value="pendentes">
+    <button type="submit" class="btn pri" data-val-run="pendentes">Executar validação agora</button>
+  </form>
+  <p class="tag">Primeira vez: corre a checklist toda (pode demorar 1 a 2 minutos). Sem JavaScript, este botão continua a funcionar — só não mostra o progresso ao vivo.</p>
+  {% endif %}
+</div>
 {% else %}
 {% set r = v.run %}
 
@@ -15,9 +26,16 @@
   <h2 style="margin:0 0 6px"><span class="pill {{ v.verdict_pill }}">{{ v.verdict_label }}</span></h2>
   <p class="tag">Última validação: {{ r.ts | datefmt }} UTC · {{ r.commit }} · suite: {{ r.suite_passed }}/{{ r.suite_total }} testes ({{ r.suite_failed }} falharam) · durou {{ '%.0f' % r.duration_s }} s</p>
   <div class="row">
-    <button type="button" class="btn pri" data-val-run="pendentes">Executar validação (só o que não está validado)</button>
-    <button type="button" class="btn" data-val-run="tudo">Validar tudo outra vez</button>
+    <form method="post" action="{{ url_for('validation_run') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="modo" value="pendentes">
+      <button type="submit" class="btn pri" data-val-run="pendentes">Executar validação (só o que não está validado)</button>
+    </form>
+    <form method="post" action="{{ url_for('validation_run') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="modo" value="tudo">
+      <button type="submit" class="btn" data-val-run="tudo">Validar tudo outra vez</button>
+    </form>
   </div>
+  <p class="tag">Sem JavaScript, estes botões continuam a funcionar — só não mostram o progresso ao vivo; atualiza a página para ver o resultado.</p>
 </div>
 
 <div class="cards">
@@ -84,6 +102,7 @@
 </div>
 {% endif %}
 {% endif %}
+</div>
 
 <dialog id="val-modal" style="background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:16px;max-width:480px;width:90vw">
   <h3 style="margin-top:0">A validar o projeto…</h3>
@@ -99,6 +118,11 @@
   var list = document.getElementById("val-list");
   var csrf = "{{ csrf }}";
   var timer = null;
+
+  function follow() {
+    if (!modal.open) { list.innerHTML = ""; status.textContent = "A acompanhar…"; modal.showModal(); }
+    if (!timer) { timer = setInterval(poll, 700); poll(); }
+  }
 
   function poll() {
     fetch("{{ url_for('validation_progress') }}", {headers: {"Accept": "application/json"}})
@@ -131,20 +155,27 @@
   function start(modo) {
     if (!modal.open) { list.innerHTML = ""; status.textContent = "A começar…"; modal.showModal(); }
     fetch("{{ url_for('validation_run') }}", {
-      method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest"},
       body: "csrf=" + encodeURIComponent(csrf) + "&modo=" + encodeURIComponent(modo)
     }).then(function (r) {
       if (r.status === 409) { status.textContent = "Já havia uma validação a correr; a acompanhar…"; }
-      timer = setInterval(poll, 700);
+      if (!timer) { timer = setInterval(poll, 700); }
       poll();
     }).catch(function () {
-      status.textContent = "Não consegui começar a validação.";
+      status.textContent = "Não consegui começar a validação. A página continua a funcionar sem JavaScript.";
     });
   }
 
-  document.querySelectorAll("[data-val-run]").forEach(function (btn) {
-    btn.addEventListener("click", function () { start(btn.dataset.valRun); });
+  document.querySelectorAll("form").forEach(function (form) {
+    var btn = form.querySelector("[data-val-run]");
+    if (!btn) { return; }
+    form.addEventListener("submit", function (ev) { ev.preventDefault(); start(btn.dataset.valRun); });
   });
+
+  var followBtn = document.getElementById("val-follow");
+  if (followBtn) { followBtn.addEventListener("click", follow); }
+  if (document.getElementById("val-root").dataset.running === "true") { follow(); }
 })();
 </script>
 {% endblock %}

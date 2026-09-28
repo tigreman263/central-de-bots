@@ -216,8 +216,10 @@ def csrf(c, url):
 
 def run_and_wait(c, modo="tudo", timeout=5.0):
     """A rota /validacao/correr só arranca a validação num fio à parte (para a janela flutuante do painel
-    sondar o progresso); os testes esperam aqui que essa validação termine antes de olhar para a página."""
-    r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": modo})
+    sondar o progresso); os testes esperam aqui que essa validação termine antes de olhar para a página.
+    Envia o mesmo cabeçalho que o JavaScript real manda, para receber JSON (não a alternativa sem JS)."""
+    r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": modo},
+              headers={"X-Requested-With": "XMLHttpRequest"})
     t0 = time.time()
     while validation.is_running():
         if time.time() - t0 > timeout:
@@ -425,8 +427,19 @@ def test_route_refuses_a_second_run_while_one_is_in_progress(panel_env):
     c, app = panel_env
     validation.begin()
     try:
-        r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": "tudo"})
+        r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": "tudo"},
+                  headers={"X-Requested-With": "XMLHttpRequest"})
         assert r.status_code == 409
+    finally:
+        validation.mark_idle()
+
+
+def test_route_refuses_a_second_run_while_in_progress_without_js_too(panel_env):
+    c, app = panel_env
+    validation.begin()
+    try:
+        r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": "tudo"}, follow_redirects=True)
+        assert r.status_code == 200 and "já há uma validação" in r.get_data(as_text=True).lower()
     finally:
         validation.mark_idle()
 
@@ -453,6 +466,52 @@ def test_route_modo_tudo_reverifies_everything_again(panel_env, monkeypatch):
     after = validation.load_last(db.connect(app.config["DB_PATH"]))
     assert after["ts"] > before["ts"]
     assert all(r["obtained"] != "anterior" for r in after["results"])
+
+
+# ---------- alternativa sem JavaScript (achado real de testes de uso) ----------
+def test_running_without_javascript_still_works_via_a_real_form_post(panel_env, monkeypatch):
+    """Sem o cabeçalho que o JS manda, a rota tem de continuar a arrancar a validação a sério — só responde
+    de forma diferente (redirecionamento em vez de JSON), para um <form> normal funcionar sem script nenhum."""
+    c, app = panel_env
+    monkeypatch.setattr(validation, "_run_suite", fake_run_suite(all_passed_outcomes()))
+    r = c.post("/validacao/correr", data={"csrf": csrf(c, "/validacao"), "modo": "tudo"}, follow_redirects=True)
+    assert r.status_code == 200 and "a começar" in r.get_data(as_text=True).lower()
+    t0 = time.time()
+    while validation.is_running():
+        if time.time() - t0 > 5.0:
+            raise TimeoutError("validação não terminou a tempo")
+        time.sleep(0.02)
+    assert validation.load_last(db.connect(app.config["DB_PATH"])) is not None   # correu mesmo, não só um efeito visual
+
+
+def test_buttons_are_real_form_submits_not_only_a_script_hook(panel_env, monkeypatch):
+    """Garante contra regressão: os botões têm de estar dentro de um <form method="post"> de verdade, para
+    continuarem a funcionar se o script nunca correr (CSP, extensão a bloquear, JS desligado)."""
+    c, app = panel_env
+    monkeypatch.setattr(validation, "_run_suite", fake_run_suite(all_passed_outcomes()))
+    run_and_wait(c)
+    html = c.get("/validacao").get_data(as_text=True)
+    assert re.search(r'<form[^>]*action="/validacao/correr"[^>]*>.*?data-val-run="pendentes"', html, re.S)
+    assert re.search(r'<form[^>]*action="/validacao/correr"[^>]*>.*?data-val-run="tudo"', html, re.S)
+
+
+# ---------- a página avisa quando já há uma validação a decorrer noutro separador ----------
+def test_fresh_page_load_shows_running_state_instead_of_never_ran(panel_env, monkeypatch):
+    c, app = panel_env
+    monkeypatch.setattr(validation, "_run_suite", fake_run_suite(all_passed_outcomes()))
+    try:
+        validation.begin()                                     # simula uma validação já a decorrer, noutro separador
+        html = c.get("/validacao").get_data(as_text=True)
+        assert "nenhuma validação" not in html.lower()
+        assert "a decorrer agora" in html
+    finally:
+        validation.mark_idle()
+
+
+def test_fresh_page_load_when_nothing_is_running_still_says_so(panel_env):
+    c, app = panel_env
+    html = c.get("/validacao").get_data(as_text=True)
+    assert "a decorrer agora" not in html
 
 
 # ---------- a página passou a viver dentro de Configuração, não na navegação principal ----------

@@ -192,6 +192,17 @@ def test_with_targets_shows_zero_held_not_none_when_portfolio_exists_but_coin_is
     assert v["approved"][0]["held_usdt"] == 0.0 and v["has_real_portfolio"] is True
 
 
+def test_target_and_held_pct_agree_when_the_real_portfolio_sums_to_zero(tmp_path):
+    """Achado real de testes de uso (validado pelo Codex): com reserve_total == 0, "Alvo" mostrava 0.00 mas
+    "% da reserva" mostrava "—" para a mesma situação — inconsistente. Os dois têm de concordar sempre."""
+    conn = fresh_conn(tmp_path)
+    pid = approve_one(conn)
+    reserve.decide(conn, pid, approve=True)
+    v = reserve.view(conn, snapshot=snapshot(0.0, []), split_reserve_pct=60.0)      # carteira real ligada, mas a somar 0
+    r = v["approved"][0]
+    assert r["target_usdt"] is None and r["held_pct_of_reserve"] is None and r["gap_usdt"] is None
+
+
 def test_held_usdt_counts_only_the_free_part_locked_orders_are_shown_apart(tmp_path):
     conn = fresh_conn(tmp_path)
     pid = approve_one(conn)

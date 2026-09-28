@@ -130,6 +130,25 @@ def test_creating_a_bot_with_an_unknown_mode_falls_back_to_simulation_never_real
     assert len(bots) == 1 and bots[0]["mode"] == "sim"
 
 
+def test_nan_or_infinite_capital_is_refused_not_a_crash(env):
+    """Achado real de testes de uso (validado pelo Codex): float("nan")/float("inf") passam no parse sem
+    levantar ValueError, e chegavam a build_grid() como int(nan)/int(inf) — ValueError/OverflowError não
+    apanhados, 500 no painel."""
+    c, fm, app = env
+    for bad in ("nan", "NaN", "inf", "Infinity", "-inf"):
+        r = c.post("/bots/novo", data={"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": bad, "step": "create"})
+        assert r.status_code in (302, 400), bad          # nunca um 500
+    assert botstore.all_bots(conn_of(app)) == []
+
+
+def test_capital_above_the_sanity_limit_is_refused(env):
+    c, fm, app = env
+    form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "1e10", "step": "create"}
+    html = c.post("/bots/novo", data=form, follow_redirects=True).get_data(as_text=True)
+    assert "acima do limite" in html
+    assert botstore.all_bots(conn_of(app)) == []
+
+
 def test_pair_outside_suggestions_or_tiny_capital_is_refused(env):
     c, fm, app = env
     base = {"csrf": tok(c, "/bots/novo"), "capital": "77", "step": "create"}

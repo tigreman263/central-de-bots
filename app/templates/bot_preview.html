@@ -43,7 +43,7 @@
   {% if twin %}<input type="hidden" name="twin" value="1">{% endif %}
   {% if never_below %}<input type="hidden" name="never_below_cost" value="1">{% endif %}
   <input type="hidden" name="capital" value="{{ capital }}">
-  <a class="btn pri" href="{{ url_for('bot_new', modo=mode) }}">Cancelar</a>
-  <button class="btn">Aprovar e criar bot ({{ 'Testnet' if mode == 'testnet' else 'simulação' }})</button>
+  <a class="btn" href="{{ url_for('bot_new', modo=mode) }}">Cancelar</a>
+  <button class="btn pri">Aprovar e criar bot ({{ 'Testnet' if mode == 'testnet' else 'simulação' }})</button>
 </form>
 {% endblock %}

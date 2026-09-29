@@ -6,7 +6,7 @@
 <div class="card">
   <h3>{{ capital_label }}</h3>
   <div class="big num">{{ total | money(cur) }}</div>
-  <p class="tag">{% if capital_label.startswith("Portef") %}Valor lido da tua conta Binance (só leitura).{% else %}Define o montante na Configuração, ou liga a chave da Binance no Portefólio.{% endif %}</p>
+  <p class="tag">{% if capital_label.startswith("Portef") %}Valor lido da tua conta Binance (só leitura).{% else %}Define o montante na Configuração, ou liga a chave da Binance no Portefólio.{% if cur != 'EUR' %} Guardado em EUR e convertido para {{ cur }} aqui — muda a moeda no topo da página para ver o valor exato que escreveste.{% endif %}{% endif %}</p>
 </div>
 
 <div class="card">

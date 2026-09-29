@@ -11,6 +11,7 @@
     <p class="flash error" role="alert">Sem ligação ao Earn: dados indisponíveis. {{ result.reason }}
       {% if result.snap %}Mostro a última leitura boa ({{ result.snap.ts[:16].replace('T', ' ') }} UTC), <b>desatualizada</b>.{% endif %}</p>
   {% endif %}
+  {% if rate_missing %}<p class="flash warnbar">Sem taxa EUR disponível agora (liga a chave real no Portefólio, ou tenta outra vez). Valores mostrados em USDT.</p>{% endif %}
   {% if summary %}
   <div class="cards">
     <div class="card"><h3>Flexível</h3><div class="big num" style="font-size:24px">{{ (summary.flex_value * rate) | money(cur) if rate else '-' }}</div></div>

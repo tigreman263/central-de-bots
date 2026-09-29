@@ -86,7 +86,7 @@
       var summary = document.getElementById("ai-summary-json").textContent;
       var text = (question ? question + "\n\n" : "") + "Resumo da carteira (JSON, gerado pela Malha, sem chaves nem IDs):\n" + summary;
       var done = function (ok) {
-        status.textContent = ok ? "Copiado. Cola numa conversa com o Claude." : "Não consegui copiar; seleciona o texto acima manualmente.";
+        status.textContent = ok ? "Copiado. Cola na tua IA (o link que ligaste acima, ou outra à tua escolha)." : "Não consegui copiar; seleciona o texto acima manualmente.";
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });

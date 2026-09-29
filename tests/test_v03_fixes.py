@@ -129,6 +129,9 @@ def test_closing_sells_the_current_balance_even_if_a_late_fill_arrived(world):
 
 # ---------- revisor: recentragem com pó e grelhas antigas ----------
 def test_recentering_works_with_dust_and_keeps_the_dust():
+    """O pó de antes do recentrar nunca se perde — soma-se ao que a grelha nova compra a mercado para os seus
+    próprios degraus acima do preço (essa compra é legítima e esperada, não deve ser deitada fora; ver também
+    test_grid.py:test_recenter_never_discards_the_new_grids_initial_buy)."""
     e = run(new_engine(), gcandles(flat(3)))
     for sl in e.grid["slots"]:
         sl["holding"], sl["buy_cost"] = False, 0.0
@@ -137,7 +140,7 @@ def test_recentering_works_with_dust_and_keeps_the_dust():
     e.s["base"] = 0.01                                                       # pó de ~1 USDT, abaixo da ordem mínima
     run(e, gcandles([120] * 200, start=e.last_ts + MIN))
     assert any(ev["kind"] == "recenter" for ev in e.new_events)
-    assert e.s["base"] == pytest.approx(0.01)                                # o pó continua a contar no saldo
+    assert e.s["base"] >= 0.01 - 1e-12                                       # o pó nunca se perde, mesmo com a compra nova
 
 
 def test_late_fill_from_an_old_grid_is_counted_as_dust_not_on_the_wrong_step():

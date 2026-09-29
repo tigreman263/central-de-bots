@@ -18,7 +18,7 @@
           </form></td>
           <td class="r num">{{ '%.2f' % r.target_usdt ~ ' USDT' if r.target_usdt is not none else '—' }}</td>
           <td class="r num">{{ '%.2f' % r.held_usdt ~ ' USDT' if r.held_usdt is not none else '—' }}</td>
-          <td class="r num">{% if r.locked_usdt %}<span style="color:var(--loss)">{{ '%.2f' % r.locked_usdt }} USDT</span>{% elif r.locked_usdt is not none %}—{% else %}—{% endif %}</td>
+          <td class="r num">{% if r.locked_usdt %}<span class="tag" style="color:var(--muted);font-weight:700">🔒 {{ '%.2f' % r.locked_usdt }} USDT</span>{% elif r.locked_usdt is not none %}—{% else %}—{% endif %}</td>
           <td class="r num">{% if r.gap_usdt is not none %}<span class="{{ 'up' if r.gap_usdt <= 0 else 'down' }}">{{ r.gap_usdt | signed }}</span>{% else %}—{% endif %}</td>
           <td class="tag">{{ r.note or '—' }}</td>
           <td><form method="post" action="{{ url_for('reserva_remover') }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ r.id }}"><button class="btn small danger">Retirar</button></form></td>

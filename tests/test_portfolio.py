@@ -342,3 +342,14 @@ def test_binance_earn_ld_assets_are_merged_into_the_base_coin(env):
     assert "LDBTC" not in coins
     assert coins["LDXYZ"]["priced"] is False  # LD sem moeda base conhecida: continua "sem preço", sem estimativa
     assert "no Earn" in c.get("/portefolio").get_data(as_text=True)
+
+
+def test_a_leftover_snapshot_without_the_key_still_present_is_never_shown_as_current(env):
+    """Achado real de uso: a chave real foi apagada por fora do botão "remover" (ficheiro apagado à mão), mas o
+    snapshot antigo ficou na base de dados — o Início continuava a mostrar "Portefólio real" com dados de dias
+    antes, em vez de cair para o capital simulado de Configuração."""
+    c, world, app, tmp = env
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_many(conn, {"portfolio_snapshot": '{"total_usdt": 999.0, "eur_per_usdt": 1.1, "ts": "2020-01-01T00:00:00+00:00", "holdings": []}'})
+    html = c.get("/").get_data(as_text=True)
+    assert "Portefólio real" not in html and "Capital simulado" in html

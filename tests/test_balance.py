@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from app import balance, db
+from app import balance, db, keystore
 from test_bots import env, make_bot  # noqa: F401
 
 
@@ -37,6 +37,7 @@ def test_exactly_at_the_limit_is_not_over():
 def test_bots_page_warns_when_active_bots_pass_the_trading_slice(env):
     c, fm, app = env
     make_bot(app, capital=90.0)
+    keystore.save(app.config["KEY_FILE"], "k", "s")   # o snapshot só conta com a chave real presente
     conn = db.connect(app.config["DB_PATH"])
     db.set_many(conn, {"split_trading": "10"})
     db.set_many(conn, {"portfolio_snapshot": '{"total_usdt": 100.0, "holdings": []}'})
@@ -64,6 +65,7 @@ def test_bots_page_never_warns_without_a_real_portfolio_connected(env):
 def test_a_stopped_bots_capital_does_not_count_as_active(env):
     c, fm, app = env
     bid = make_bot(app, capital=90.0)
+    keystore.save(app.config["KEY_FILE"], "k", "s")   # o snapshot só conta com a chave real presente
     conn = db.connect(app.config["DB_PATH"])
     conn.execute("UPDATE bots SET status = 'stopped' WHERE id = ?", (bid,))
     conn.commit()

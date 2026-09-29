@@ -20,6 +20,6 @@
   {% for k, v in new.items() if k != 'exclusions' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
   {% for c in new.exclusions.split(',') if c %}<input type="hidden" name="exclusions" value="{{ c }}">{% endfor %}
   <a class="btn" href="{{ url_for('config', cat=cat) }}">Cancelar</a>
-  <button class="btn">Guardar configuração</button>
+  <button class="btn pri">Guardar configuração</button>
 </form>
 {% endblock %}

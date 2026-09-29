@@ -4,6 +4,7 @@ Só modo simulação. Nada aqui envia ordens.
 """
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -35,6 +36,12 @@ LOCAL_ADDRS = ("127.0.0.1", "::1")
 MAX_GLOBAL_FAILS = 30
 MAX_BOT_CAPITAL = 1_000_000   # USDT; só um travão de bom senso contra um erro de dactilografia, não um limite de negócio
 PLACEHOLDERS = {}
+# Laboratório: proteções de risco que se podem testar com valores diferentes dos do bot copiado / da configuração
+# global, sem os alterar — em branco usa o valor por defeito (do bot, ou de grid.DEFAULTS numa configuração nova).
+RISK_OVERRIDE_KEYS = [("max_loss_trade_pct", "Perda máxima por operação (%)"),
+                      ("daily_loss_pct", "Limite diário de perda (%)"),
+                      ("pause_drawdown_pct", "Pausa se o capital cair (%)"),
+                      ("drop_pause_pct", "Pausa se o preço cair, numa hora (%)")]
 
 
 def create_app(test_config=None):
@@ -173,6 +180,19 @@ def create_app(test_config=None):
             return "sem preço"
         return f"{value:,.2f}".replace(",", " ").replace(".", ",")
 
+    @app.template_filter("shorterr")
+    def shorterr(text, limit=180):
+        """Resume o despejo bruto do terminal (usado nos bloqueadores da Validação) numa única linha legível —
+        a linha do resumo do pytest ("N failed, M passed...") se existir, senão a última linha com conteúdo real."""
+        if not text:
+            return text
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        summary = next((ln.strip(" =") for ln in reversed(lines) if re.search(r"\d+ (passed|failed|error)", ln)), None)
+        if summary is None:
+            content = [ln for ln in lines if not re.fullmatch(r"=+", ln)]
+            summary = content[-1] if content else text.strip()
+        return (summary[:limit] + "…") if len(summary) > limit else summary
+
     def get_market():
         return market.get_market(app.config["MARKET_FETCH"] or market._download)
 
@@ -303,7 +323,7 @@ def create_app(test_config=None):
                 "runner": runner_state(), "emergency": db.get(conn(), "emergency_stop") == "1", "bots": len(rows),
                 "bots_active": sum(1 for r in rows if r["status"] != "stopped"), "data_dir": str(data_dir),
                 "keys_dir": str(cfgmod.keys_dir()), "db_mb": db_mb, "capacity": capacity.view(conn()),
-                "gate": readiness.evaluate(conn(), now_ms())}
+                "gate": readiness.evaluate(conn(), now_ms()), "read_ts": now_ms()}
 
     def config_page(cfg, cat):
         cat = cat if cat in dict(CFG_CATS) else "capital"
@@ -467,6 +487,10 @@ def create_app(test_config=None):
         return app.config["REAL_TRADING_KEY_FILE"] or keystore.real_trading_path()
 
     def load_snapshot():
+        # se a chave real desapareceu por fora do botão "remover" (ficheiro apagado à mão, restauro, etc.), o
+        # snapshot guardado fica órfão — nunca o mostrar como se fosse atual sem confirmar que a chave existe.
+        if not keystore.load(key_file()):
+            return None
         raw = db.get(conn(), "portfolio_snapshot")
         return json.loads(raw) if raw else None
 
@@ -580,8 +604,12 @@ def create_app(test_config=None):
         summary, sugs = staking_model(result)
         pf = load_snapshot()
         cur = session.get("cur", "USDT")
-        rate = rate_for(pf, cur) if pf else None
-        return render_template("staking.html", result=result, summary=summary, sugs=sugs, rate=rate)
+        rate = rate_for(pf, cur) if pf else (1.0 if cur != "EUR" else None)
+        rate_missing = rate is None
+        if rate_missing:
+            rate, cur = 1.0, "USDT"     # os valores existem em USDT; não escondê-los só por faltar a conversão p/ EUR
+        return render_template("staking.html", result=result, summary=summary, sugs=sugs, rate=rate, cur=cur,
+                               rate_missing=rate_missing)
 
     @app.post("/staking/atualizar")
     def staking_refresh():
@@ -941,7 +969,10 @@ def create_app(test_config=None):
 
     def default_capital():
         snap = load_snapshot()
-        return round(snap["total_usdt"] * 0.15, 2) if snap else 90.0
+        if snap:
+            return round(snap["total_usdt"] * 0.15, 2)
+        cfg = db.get_all(conn())   # sem chave real: parte do capital simulado, não de um número fixo sem relação
+        return round(float(cfg["capital_eur"]) * float(cfg["split_trading"]) / 100, 2)
 
     def preview_grid(pair, capital, mode="sim"):
         """Monta a grelha com o preço e as regras reais do par. Levanta GridRefused se a guarda recusar.
@@ -1147,7 +1178,9 @@ def create_app(test_config=None):
         if cmd == "stop" and request.form.get("confirm") != "1":       # parar um bot pede sempre confirmação
             return redirect(url_for("bot_stop_confirm", bot_id=bot_id))
         row = botstore.get(conn(), bot_id)
-        if cmd == "activate" and row is not None:                        # ATIVAR: um bot de cada vez, nunca automático
+        if row is None:
+            abort(404)
+        if cmd == "activate":                                            # ATIVAR: um bot de cada vez, nunca automático
             eng = botstore.load_engine(conn(), bot_id)
             if db.get(conn(), "emergency_stop") == "1":
                 flash("O sistema ainda está em modo seguro. Carrega em Reativar na barra de cima; depois ativa os bots um a um.", "error")
@@ -1171,6 +1204,9 @@ def create_app(test_config=None):
         cur = session.get("cur", "USDT")
         pf = load_snapshot()
         rate = rate_for(pf, cur) if pf else (1.0 if cur != "EUR" else None)
+        rate_missing = rate is None
+        if rate_missing:
+            rate, cur = 1.0, "USDT"     # os valores existem em USDT; não escondê-los só por faltar a conversão p/ EUR
         items = []
         for r in botstore.all_bots(conn()):
             eng = botstore.load_engine(conn(), r["id"])
@@ -1180,24 +1216,28 @@ def create_app(test_config=None):
         by_id = {it["row"]["id"]: it for it in items}
         compare = [{"testnet": by_id[it["row"]["twin_of"]], "sim": it} for it in items
                    if it["row"]["twin_of"] and it["row"]["twin_of"] in by_id]
-        return render_template("stats.html", items=items, rate=rate, runner=runner_state(), compare=compare)
+        return render_template("stats.html", items=items, rate=rate, cur=cur, rate_missing=rate_missing,
+                               runner=runner_state(), compare=compare)
 
     # ---------- Laboratório de Cenários: testa um bot contra um percurso de mercado à tua escolha ----------
     # à parte de propósito: fica em scenario_runs, nunca na tabela `bots` — um ensaio nunca conta para o portão
     # da conta real, as estatísticas nem a capacidade do sistema.
     def parse_script(form):
+        """Fases indexadas (phase_tipo_0, phase_tipo_1, ...): o número de fases é livre, adicionadas/removidas no
+        próprio browser (JS), sem limite fixo de linhas."""
         script = []
-        for tipo, forca, custom, dur, unidade in zip(
-                form.getlist("phase_tipo"), form.getlist("phase_forca"), form.getlist("phase_custom"),
-                form.getlist("phase_dur"), form.getlist("phase_unidade")):
-            if tipo not in scenario.DIR or unidade not in scenario.UNIT_TO_MIN:
-                continue
-            dur_v = db.parse_decimal_pt(dur) or 1.0
-            if dur_v <= 0:
-                continue
-            custom_v = db.parse_decimal_pt(custom) if custom else None
-            script.append({"tipo": tipo, "forca": forca if forca in scenario.PRESETS else "moderada",
-                           "custom": custom_v, "dur": dur_v, "unidade": unidade})
+        i = 0
+        while f"phase_tipo_{i}" in form:
+            tipo, unidade = form.get(f"phase_tipo_{i}", ""), form.get(f"phase_unidade_{i}", "")
+            if tipo in scenario.DIR and unidade in scenario.UNIT_TO_MIN:
+                dur_v = db.parse_decimal_pt(form.get(f"phase_dur_{i}")) or 1.0
+                if dur_v > 0:
+                    custom = form.get(f"phase_custom_{i}", "")
+                    custom_v = db.parse_decimal_pt(custom) if custom else None
+                    forca = form.get(f"phase_forca_{i}", "")
+                    script.append({"tipo": tipo, "forca": forca if forca in scenario.PRESETS else "moderada",
+                                   "custom": custom_v, "dur": dur_v, "unidade": unidade})
+            i += 1
         return script
 
     @app.route("/laboratorio", methods=["GET", "POST"])
@@ -1210,9 +1250,9 @@ def create_app(test_config=None):
                     flash("Esse bot já não existe. Escolhe outro, ou usa uma configuração nova.", "error")
                     return redirect(url_for("laboratorio"))
                 eng = botstore.load_engine(conn(), row["id"])
-                pair, capital, rules, params = eng.pair, eng.capital, eng.rules, eng.p
+                pair, capital, rules, params = eng.pair, eng.capital, eng.rules, dict(eng.p)
             else:
-                pair = request.form.get("par", "BTCUSDT").strip().upper()
+                pair = (request.form.get("par_manual", "").strip() or request.form.get("par", "BTCUSDT")).strip().upper()
                 capital = db.parse_decimal_pt(request.form.get("capital")) or 0.0
                 if not pair.isalnum() or capital <= 0:
                     flash("Escolhe um par e indica um capital maior que zero.", "error")
@@ -1229,6 +1269,12 @@ def create_app(test_config=None):
                 if rules.get("status") != "TRADING":
                     flash(f"O par {pair} não está em negociação normal na Binance.", "error")
                     return redirect(url_for("laboratorio"))
+            for key, _label in RISK_OVERRIDE_KEYS:
+                raw = request.form.get(f"risk_{key}", "").strip()
+                if raw:
+                    v = db.parse_decimal_pt(raw)
+                    if v is not None and v > 0:
+                        params[key] = v
             script = parse_script(request.form)
             if not script:
                 flash("Adiciona pelo menos uma fase válida ao guião.", "error")
@@ -1238,26 +1284,52 @@ def create_app(test_config=None):
             except BinanceError as exc:
                 flash(f"Não consegui ler o preço atual de {pair} ({exc}). Tenta de novo daqui a pouco.", "error")
                 return redirect(url_for("laboratorio"))
+            try:
+                G.build_grid(start_price, capital, rules, params)   # falha cedo: nem vale a pena gerar o guião todo
+            except G.GridRefused as exc:
+                flash(f"Não dá para montar a grelha com este capital ({exc}). Aumenta o capital e tenta de novo.", "error")
+                return redirect(url_for("laboratorio"))
             no_seed = request.form.get("no_seed") == "1"
             seed = "" if no_seed else (request.form.get("seed", "").strip() or scenario.new_seed())
             candles, bands = scenario.generate_candles(script, seed or None, start_price, now_ms())
-            result = scenario.run_engine(pair, capital, rules, params, candles)
+            try:
+                result = scenario.run_engine(pair, capital, rules, params, candles)
+            except G.GridRefused as exc:
+                flash(f"Não dá para montar a grelha com este capital ({exc}). Aumenta o capital e tenta de novo.", "error")
+                return redirect(url_for("laboratorio"))
             name = request.form.get("name", "").strip() or f"{pair} · {len(script)} fase(s)"
-            run_id = scenario.save(conn(), name, pair, capital, rules, params, script,
+            run_id = scenario.save(conn(), name, pair, capital, rules, result["params"], script,
                                    seed or "sem seed fixa", bands, result)
             db.log(conn(), "Ensaio de cenário criado", f"{name}: {result['final_pct']:+.2f}%")
             return redirect(url_for("laboratorio", ver=run_id))
         view_id = request.args.get("ver", type=int)
         viewing = scenario.get(conn(), view_id) if view_id else None
         pchart = None
+        comparing = None
         if viewing:
             candles = [tuple(c) for c in viewing["result"]["candles"]]
             viewing["equity_chart"] = chart_path([(e["ts"], e["equity"]) for e in viewing["result"]["equity"]])
             pchart = chart.build(candles, viewing["result"]["grid"], viewing["result"]["fills"],
-                                 viewing["result"]["events"], viewing["result"]["orders"], window="7d")
-        return render_template("laboratorio.html", bots=botstore.all_bots(conn()), runs=scenario.list_runs(conn()),
-                               viewing=viewing, pchart=pchart, default_capital=default_capital(),
-                               presets=scenario.PRESETS, seed_placeholder=scenario.new_seed())
+                                 viewing["result"]["events"], viewing["result"]["orders"], window="7d",
+                                 phase_bands=viewing["bands"])
+            vs_id = request.args.get("vs", type=int)
+            comparing = scenario.get(conn(), vs_id) if vs_id and vs_id != view_id else None
+            if comparing:
+                comparing["equity_chart"] = chart_path([(e["ts"], e["equity"]) for e in comparing["result"]["equity"]])
+        cache = suggestions_cached()
+        order = request.args.get("ordenar", "recentes")
+        order = order if order in scenario.ORDERS else "recentes"
+        all_runs = scenario.list_runs(conn(), order=order)
+        per_page = 15
+        total_pages = max(1, -(-len(all_runs) // per_page))
+        page = min(max(1, request.args.get("pagina", 1, type=int)), total_pages)
+        runs = all_runs[(page - 1) * per_page: page * per_page]
+        return render_template("laboratorio.html", bots=botstore.all_bots(conn()), runs=runs,
+                               runs_order=order, runs_page=page, runs_total_pages=total_pages, runs_count=len(all_runs),
+                               viewing=viewing, pchart=pchart, comparing=comparing, default_capital=default_capital(),
+                               presets=scenario.PRESETS, seed_placeholder=scenario.new_seed(),
+                               suggestions=cache["data"], suggestions_error=cache.get("error"),
+                               risk_keys=RISK_OVERRIDE_KEYS, grid_defaults=G.DEFAULTS)
 
     @app.post("/laboratorio/<int:run_id>/apagar")
     def laboratorio_delete(run_id):

@@ -130,6 +130,22 @@ def test_staking_reads_positions_and_suggests_with_reasons(env):
     assert "podes resgatar quando quiseres" in html or "só o resgatas no fim do prazo" in html
 
 
+def test_staking_shows_usdt_values_instead_of_hiding_them_when_eur_rate_is_missing(env):
+    """Achado real de uso: sem taxa EUR (`rate` None), os valores em USDT que a app já conhece ficavam escondidos
+    atrás de "-", como se não houvesse dado nenhum, em vez de mostrar o valor real numa moeda diferente."""
+    c, world, app, tmp = env
+    earn_world(world)
+    save_key(c)
+    conn = db.connect(app.config["DB_PATH"])
+    snap = snapshot(app)
+    del snap["eur_per_usdt"]                                     # simula a taxa EUR em falta
+    db.set_many(conn, {"portfolio_snapshot": json.dumps(snap)})
+    c.get("/moeda/EUR")
+    html = c.get("/staking").get_data(as_text=True)
+    assert "Sem taxa EUR disponível agora" in html
+    assert html.count(">-<") == 0                                # nenhum valor escondido atrás de um traço
+
+
 def test_staking_never_suggests_locked_for_coin_with_risk_alert(env):
     c, world, app, tmp = env
     earn_world(world)
@@ -282,6 +298,18 @@ def test_new_tabs_require_login_and_keep_stop_button(env):
     anon = app.test_client()
     for url in ["/staking", "/ai", "/portefolio"]:
         assert anon.get(url).status_code == 302, url
+
+
+def test_estatisticas_shows_usdt_values_instead_of_hiding_them_when_eur_rate_is_missing(env):
+    c, world, app, tmp = env
+    save_key(c)
+    conn = db.connect(app.config["DB_PATH"])
+    snap = snapshot(app)
+    del snap["eur_per_usdt"]
+    db.set_many(conn, {"portfolio_snapshot": json.dumps(snap)})
+    c.get("/moeda/EUR")
+    html = c.get("/estatisticas").get_data(as_text=True)
+    assert "Sem taxa EUR disponível agora" in html
 
 
 def test_dust_creates_no_risk_alerts_and_is_aggregated_in_ai_summary(env):

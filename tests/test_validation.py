@@ -255,6 +255,28 @@ def test_panel_never_shows_pronto_when_there_is_a_manual_unvalidated_critical_it
     assert "PRONTO PARA AUDITORIA FINAL" not in html                        # há bloqueadores manuais (Pi real, etc.)
 
 
+def test_blockers_table_shows_a_short_summary_not_the_raw_pytest_dump(panel_env, monkeypatch):
+    """Achado real de uso: a coluna "Motivo" dos bloqueadores mostrava o despejo bruto do terminal (linhas
+    "====...====", "FAILED tests/...") em vez de um resumo de uma linha — ilegível numa tabela compacta."""
+    c, app = panel_env
+    outcomes = all_passed_outcomes()
+    a_test = next(iter(outcomes))
+    outcomes[a_test] = "FAILED"
+    raw_tail = (
+        "Falhou — app.trader.TraderError: Sem ligação à Testnet.\n"
+        "==================== short test summary info ====================\n"
+        f"FAILED {a_test} - AssertionError: algo\n"
+        "================== 1 failed, 500 passed in 259.12s (0:04:19) =================="
+    )
+    monkeypatch.setattr(validation, "_run_suite", fake_run_suite(outcomes, tail=raw_tail))
+    run_and_wait(c)
+    html = c.get("/validacao").get_data(as_text=True)
+    blockers_table = html[html.index("BLOQUEADORES"):html.index("Resumo por categoria")]
+    assert "1 failed, 500 passed in 259.12s (0:04:19)" in blockers_table    # resumo limpo, presente na tabela
+    assert "short test summary info" not in blockers_table                 # despejo bruto, ausente só da tabela
+    assert "short test summary info" in html                               # (continua completo no detalhe do item)
+
+
 def test_panel_shows_nao_pronto_when_a_critical_test_fails(panel_env, monkeypatch):
     c, app = panel_env
     outcomes = all_passed_outcomes()

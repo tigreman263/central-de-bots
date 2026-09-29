@@ -94,6 +94,24 @@ CHECKLIST = [
      "requirement": "Estado NORMAL/ATENÇÃO/ELEVADO/CRÍTICO visível no painel, calculado a partir de métricas reais.",
      "how": "pytest", "tests": [T("test_capacity", "test_home_card_and_system_tab_show_capacity_in_the_existing_style")],
      "critical": False, "impact": "Só informa; nunca decide nada dos bots."},
+    {"id": "rm-laboratorio", "cat": "Roadmap / Funcionalidades",
+     "name": "Laboratório de Cenários (mercado sintético + motor real)",
+     "requirement": "Desenha um guião de fases (alta/lateral/baixa), corre o motor real de grelha (engine.py) por "
+                    "cima de velas sintéticas determinísticas pela seed, isolado por completo da tabela `bots`.",
+     "how": "pytest", "tests": [T("test_scenario", "test_same_seed_and_script_always_produces_the_same_candles"),
+                                T("test_scenario", "test_run_engine_produces_a_result_with_equity_and_final_pct"),
+                                T("test_scenario", "test_save_get_list_delete_round_trip"),
+                                T("test_scenario", "test_a_scenario_run_never_creates_a_real_bot")],
+     "critical": False, "impact": "Ferramenta de aprendizagem; um bug aqui não afeta bots nem dinheiro real."},
+    {"id": "rm-laboratorio-direcao", "cat": "Roadmap / Funcionalidades",
+     "name": "Laboratório: a direção escolhida domina o ruído, não é indistinguível dela",
+     "requirement": "Uma fase 'alta' tem de terminar em alta de forma fiável para a combinação por defeito do "
+                    "formulário (moderada, 1 dia) — não pode parecer um passeio aleatório sem direção.",
+     "how": "pytest", "tests": [T("test_scenario", "test_default_alta_phase_reliably_trends_up_not_dominated_by_noise"),
+                                T("test_scenario", "test_alta_drifts_up_and_baixa_drifts_down_on_average")],
+     "critical": False,
+     "impact": "Achado real de uso: com a calibração antiga, uma fase 'alta' tinha ~33% de hipótese de terminar em "
+               "queda por puro ruído, mesmo escolhida como alta."},
 
     # ---------------- 2. Trading e Ordens ----------------
     {"id": "tr-guarda", "cat": "Trading e Ordens", "name": "Guarda de risco recusa ordens fora dos filtros",
@@ -111,6 +129,17 @@ CHECKLIST = [
          "test_crash_3_after_partial_fill_before_saving_counts_it_once", "test_crash_4_after_full_fill_before_saving_counts_it_once",
          "test_crash_5_cancel_done_on_the_exchange_but_not_recorded")] + [T("test_v03_fixes", "test_crash_6_in_the_middle_of_sending_the_orders")],
      "critical": True, "impact": "É o requisito mais antigo do projeto: nunca duplicar."},
+    {"id": "tr-recentrar-preserva-capital", "cat": "Trading e Ordens",
+     "name": "Recentrar a grelha nunca perde capital nem derruba o passo",
+     "requirement": "Ao recentrar em alta, o dinheiro gasto no inventário novo soma-se ao pó antigo (nunca o "
+                    "substitui); se a guarda de risco recusar a grelha nova a esse preço, a grelha antiga mantém-se "
+                    "em vez de a exceção derrubar o passo do bot inteiro.",
+     "how": "pytest", "tests": [T("test_grid", "test_recenter_never_discards_the_new_grids_initial_buy"),
+                                T("test_grid", "test_a_recenter_the_risk_guard_would_refuse_never_crashes_the_step")],
+     "critical": True,
+     "impact": "Achado real de uso: um recentrar em alta podia fazer dezenas de % do capital 'desaparecer' da "
+               "contabilidade numa só vela, ou rebentar o passo do bot (500 no Laboratório; escondido no corredor "
+               "real por um apanhador genérico de erros)."},
     {"id": "tr-comissoes", "cat": "Trading e Ordens", "name": "Comissões reais aplicadas (moeda, USDT ou BNB)",
      "requirement": "A contabilidade usa a comissão que a exchange cobrou de facto, não uma taxa fixa.",
      "how": "pytest", "tests": [T("test_testnet", "test_cycle_uses_real_prices_and_real_commissions"),

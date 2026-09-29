@@ -6,8 +6,8 @@
 <p class="sub">Sai do modo seguro. Os bots continuam parados até os ligares um a um.</p>
 <form method="post" class="row">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <a class="btn pri" href="{{ url_for('inicio') }}">Cancelar</a>
-  <button class="btn">Reativar</button>
+  <a class="btn" href="{{ url_for('inicio') }}">Cancelar</a>
+  <button class="btn pri">Reativar</button>
 </form>
 {% else %}
 <h2>Parar todos os bots?</h2>

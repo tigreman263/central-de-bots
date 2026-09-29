@@ -2,73 +2,140 @@
 {% block title %}Laboratório de Cenários · Malha{% endblock %}
 {% block body %}
 <h2>Laboratório de Cenários</h2>
-<p class="sub">Desenha um percurso de mercado (alta, baixa ou lateral) e vê como a grelha e as proteções de risco reagem —
-sem tocar em bots a sério. Corre o motor real por cima de velas sintéticas; nunca conta para o portão da conta real,
-as estatísticas nem a capacidade do sistema.</p>
+<p class="sub">Desenha um percurso de mercado (alta, baixa ou lateral, em qualquer ordem) e vê como a grelha e as
+proteções de risco reagem — sem tocar em bots a sério. Corre o motor real por cima de velas sintéticas; nunca conta
+para o portão da conta real, as estatísticas nem a capacidade do sistema.</p>
 
-<form method="post" class="stack">
+<form method="post" class="stack" id="labform">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <div class="card stack">
-    <h3 style="margin:0">Bot a testar</h3>
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Bot a testar</h3>
+      {% if bots %}
+      <div class="seg" role="group" aria-label="Origem do bot">
+        <input type="radio" id="srcExistente" class="sr-only seg-input" data-src-radio="existente" name="bot_src" value="existente" checked>
+        <label for="srcExistente" class="seg-opt">Bot existente</label>
+        <input type="radio" id="srcNovo" class="sr-only seg-input" data-src-radio="novo" name="bot_src" value="novo">
+        <label for="srcNovo" class="seg-opt">Configuração nova</label>
+      </div>
+      {% endif %}
+    </div>
     {% if bots %}
-    <label style="cursor:pointer"><input type="radio" name="bot_src" value="existente" checked> Usar a configuração de um bot que já tens</label>
-    <select name="bot_id">
-      {% for b in bots %}<option value="{{ b.id }}">{{ b.pair }} · {{ 'Testnet' if b.mode == 'testnet' else 'simulação' }} · {{ '%g' % b.capital_usdt }} USDT</option>{% endfor %}
-    </select>
-    <label style="cursor:pointer"><input type="radio" name="bot_src" value="novo"> Configuração nova</label>
+    <fieldset data-toggle="existente"><legend>Qual bot</legend>
+      <select name="bot_id">
+        {% for b in bots %}<option value="{{ b.id }}">{{ b.pair }} · {{ 'Testnet' if b.mode == 'testnet' else 'simulação' }} · {{ '%g' % b.capital_usdt }} USDT</option>{% endfor %}
+      </select>
+      <p class="tag">Usa o par, o capital e as regras exatas desse bot — ele não é tocado, só copiado para o ensaio.</p>
+    </fieldset>
     {% else %}
     <input type="hidden" name="bot_src" value="novo">
     <p class="tag">Ainda não tens bots — usa uma configuração nova.</p>
     {% endif %}
-    <div class="row">
-      <div class="field"><label for="par">Par (configuração nova)</label>
-        <input id="par" name="par" value="BTCUSDT" placeholder="BTCUSDT"></div>
-      <div class="field"><label for="capital">Capital (USDT)</label>
-        <input id="capital" name="capital" inputmode="decimal" value="{{ default_capital }}"></div>
-    </div>
+    <fieldset data-toggle="novo" {% if bots %}hidden{% endif %}><legend>Configuração nova</legend>
+      {% if suggestions %}
+      <label>Par (sugestões de agora, pelos critérios de Configuração &gt; Sugestões de moedas)</label>
+      <div class="row" role="radiogroup" aria-label="Par sugerido">
+        {% for s in suggestions %}
+        <input type="radio" class="sr-only chip-input" name="par" value="{{ s.pair }}" id="sugpar{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+        <label for="sugpar{{ loop.index0 }}" class="chip-opt forca">{{ s.pair }}{% if not s.meets %} ⚠{% endif %}</label>
+        {% endfor %}
+      </div>
+      {% elif suggestions_error %}
+      <p class="flash error">Não consegui ler sugestões da Binance ({{ suggestions_error }}). Escreve o par à mão em baixo.</p>
+      {% else %}
+      <p class="tag">Nenhum par cumpre os critérios agora — escreve um par à mão em baixo.</p>
+      {% endif %}
+      <div class="row" style="margin-top:10px">
+        <div class="field"><label for="parManual">{{ 'ou outro par (manual)' if suggestions else 'Par' }}</label>
+          <input id="parManual" name="par_manual" placeholder="ex.: BTCUSDT"></div>
+        <div class="field"><label for="capital">Capital (USDT)</label>
+          <input id="capital" name="capital" inputmode="decimal" value="{{ default_capital }}"></div>
+      </div>
+      <p class="tag">Usa as regras de grelha por defeito, tal como ao criar um bot novo.</p>
+    </fieldset>
   </div>
 
   <div class="card stack">
     <h3 style="margin:0">Guião do percurso</h3>
-    <p class="tag">Cada fase é um trecho do percurso. Deixa "tipo" em branco para não usar essa linha.</p>
-    {% for i in range(6) %}
-    <div class="row" style="align-items:flex-end;flex-wrap:wrap">
-      <div class="field"><label for="tipo{{ i }}">Fase {{ i + 1 }}</label>
-        <select id="tipo{{ i }}" name="phase_tipo">
-          <option value="">(não usar)</option>
-          <option value="alta">Alta</option>
-          <option value="lateral">Lateral</option>
-          <option value="baixa">Baixa</option>
-        </select></div>
-      <div class="field"><label for="forca{{ i }}">Força</label>
-        <select id="forca{{ i }}" name="phase_forca">
-          {% for p in presets %}<option value="{{ p }}" {% if p == 'moderada' %}selected{% endif %}>{{ p | capitalize }} (~{{ presets[p] }}%/dia)</option>{% endfor %}
-        </select></div>
-      <div class="field"><label for="custom{{ i }}">ou %/dia à mão</label>
-        <input id="custom{{ i }}" name="phase_custom" inputmode="decimal" placeholder="opcional" size="8"></div>
-      <div class="field"><label for="dur{{ i }}">Duração</label>
-        <input id="dur{{ i }}" name="phase_dur" inputmode="decimal" value="{{ '1' if i == 0 else '' }}" size="5"></div>
-      <div class="field"><label for="unid{{ i }}">Unidade</label>
-        <select id="unid{{ i }}" name="phase_unidade">
-          <option value="horas">Horas</option>
-          <option value="dias" selected>Dias</option>
-          <option value="minutos">Minutos</option>
-        </select></div>
-    </div>
-    {% endfor %}
+    <p class="tag">Cada cartão é uma fase do percurso, na ordem. Adiciona ou remove fases à vontade.</p>
+    <noscript><p class="flash error">Esta secção precisa de JavaScript para desenhar as fases do guião.</p></noscript>
+    <div class="stack" id="phases"></div>
+    <div class="row"><button type="button" class="btn small" id="addPhase">+ Adicionar fase</button>
+      <span class="tag" id="phaseSummary" style="margin:0"></span></div>
   </div>
+
+  <details class="card">
+    <summary style="cursor:pointer;font-weight:700">Proteções de risco (opcional — em branco usa o valor do bot copiado, ou o valor por defeito)</summary>
+    <div class="row" style="margin-top:12px">
+      {% for key, label in risk_keys %}
+      <div class="field"><label for="risk_{{ key }}">{{ label }}</label>
+        <input id="risk_{{ key }}" name="risk_{{ key }}" inputmode="decimal" placeholder="{{ grid_defaults[key] }}"></div>
+      {% endfor %}
+    </div>
+    <p class="tag">Testa aqui como o bot reage com proteções mais apertadas ou mais largas, sem mudar a configuração
+      real do bot nem a de Configuração &gt; Risco e lucro.</p>
+  </details>
 
   <div class="card stack">
     <h3 style="margin:0">Repetição</h3>
-    <div class="row">
-      <div class="field"><label for="seed">Seed (mesma seed + mesmo guião = mesmo resultado)</label>
-        <input id="seed" name="seed" placeholder="{{ seed_placeholder }}"></div>
-      <label style="cursor:pointer;align-self:center"><input type="checkbox" name="no_seed" value="1"> Sem seed fixa (aleatório de cada vez)</label>
+    <div class="row" style="align-items:flex-end">
+      <div class="field" style="flex:1;min-width:200px"><label for="seed">Seed (mesma seed + mesmo guião = mesmo resultado)</label>
+        <input id="seed" name="seed" value="{{ seed_placeholder }}"></div>
+      <button type="button" class="btn small" id="randomSeed">🎲 Nova seed</button>
     </div>
+    <label class="row" style="cursor:pointer"><input type="checkbox" id="noSeed" name="no_seed" value="1"> Sem seed fixa (aleatório de cada vez)</label>
     <div class="field"><label for="name">Nome do ensaio (opcional)</label><input id="name" name="name" placeholder="ex.: queda forte de 20%"></div>
   </div>
-  <div class="row"><button class="btn pri">Correr o guião</button></div>
+  <div class="row"><button class="btn pri">▶ Correr o guião</button></div>
 </form>
+
+<template id="phaseTemplate">
+  <div class="lab-phase">
+    <div class="lab-phase-head">
+      <span class="row" style="gap:8px"><span class="lab-phase-num">__N__</span><strong>Fase __N__</strong></span>
+      <button type="button" class="iconbtn" data-remove aria-label="Remover fase __N__">✕</button>
+    </div>
+    <div class="row" style="margin-bottom:10px" role="radiogroup" aria-label="Tipo da fase __N__">
+      <input type="radio" class="sr-only chip-input" name="phase_tipo___I__" value="alta" id="tipo__I__a" checked><label for="tipo__I__a" class="chip-opt alta">▲ Alta</label>
+      <input type="radio" class="sr-only chip-input" name="phase_tipo___I__" value="lateral" id="tipo__I__l"><label for="tipo__I__l" class="chip-opt lateral">▬ Lateral</label>
+      <input type="radio" class="sr-only chip-input" name="phase_tipo___I__" value="baixa" id="tipo__I__b"><label for="tipo__I__b" class="chip-opt baixa">▼ Baixa</label>
+    </div>
+    <div class="row" style="margin-bottom:10px" role="radiogroup" aria-label="Força da fase __N__">
+      <input type="radio" class="sr-only chip-input" name="phase_forca___I__" value="suave" id="forca__I__s"><label for="forca__I__s" class="chip-opt forca">Suave</label>
+      <input type="radio" class="sr-only chip-input" name="phase_forca___I__" value="moderada" id="forca__I__m" checked><label for="forca__I__m" class="chip-opt forca">Moderada</label>
+      <input type="radio" class="sr-only chip-input" name="phase_forca___I__" value="forte" id="forca__I__f"><label for="forca__I__f" class="chip-opt forca">Forte</label>
+      <input type="radio" class="sr-only chip-input" name="phase_forca___I__" value="custom" id="forca__I__c" data-custom-toggle><label for="forca__I__c" class="chip-opt forca">Personalizada</label>
+      <span class="custom-pct"><input name="phase_custom___I__" inputmode="decimal" placeholder="%/dia" aria-label="Percentagem por dia à mão, fase __N__"> %/dia</span>
+    </div>
+    <div class="row">
+      <label style="font-weight:400;color:var(--muted)">Duração:</label>
+      <input name="phase_dur___I__" inputmode="decimal" value="1" style="width:80px" aria-label="Duração da fase __N__">
+      <select name="phase_unidade___I__" aria-label="Unidade da duração, fase __N__">
+        <option value="minutos">minutos</option>
+        <option value="horas">horas</option>
+        <option value="dias" selected>dias</option>
+      </select>
+    </div>
+  </div>
+</template>
+
+{% if not viewing %}
+<div class="card">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h3 style="margin:0">Pré-visualização do percurso</h3>
+    <span class="pill idle">rascunho — ajusta-se ao que vais construindo</span>
+  </div>
+  <svg class="pchart" id="previewPchart" viewBox="0 0 760 260" width="100%" role="img"
+       aria-label="Pré-visualização do percurso de mercado, de acordo com as fases que estás a construir"></svg>
+  <p class="legend tag">
+    <span><i class="sw" style="background:var(--gain-soft);border:1px solid var(--gain)"></i>Fase em alta</span>
+    <span><i class="sw" style="background:var(--loss-soft);border:1px solid var(--loss)"></i>Fase em baixa</span>
+    <span><i class="sw" style="background:var(--accent-soft);border:1px solid var(--accent)"></i>Fase lateral</span>
+  </p>
+  <p class="tag">Isto é um rascunho ilustrativo (não passa pelo motor real) que se ajusta ao vivo à medida que
+    editas as fases em baixo — para sentires a forma do percurso antes de correr o guião a sério.</p>
+</div>
+{% endif %}
 
 {% if viewing %}
 <h3>Resultado: {{ viewing.name }}</h3>
@@ -83,22 +150,54 @@ as estatísticas nem a capacidade do sistema.</p>
   <div class="card"><h3>Proteções disparadas</h3><div class="big num" style="font-size:20px">{{ viewing.result.protections | join(', ') if viewing.result.protections else 'nenhuma' }}</div>
     <p class="tag">pausa / stop / compras suspensas, se algum disparou durante o guião</p></div>
 </div>
+<p class="tag">Proteções usadas neste ensaio: perda por operação {{ '%g' % viewing.params.max_loss_trade_pct }}% ·
+  limite diário {{ '%g' % viewing.params.daily_loss_pct }}% · pausa por queda de capital {{ '%g' % viewing.params.pause_drawdown_pct }}% ·
+  pausa por queda de preço {{ '%g' % viewing.params.drop_pause_pct }}%/{{ viewing.params.drop_window_minutes }} min.</p>
 
-<div class="card"><h3>Fases do guião</h3>
-  <div class="tablewrap"><table class="coins"><thead><tr><th>Tipo</th><th>Força</th><th class="r">Duração</th></tr></thead><tbody>
-    {% for f in viewing.script %}
-      <tr><td data-label="Tipo">{{ f.tipo | capitalize }}</td>
-        <td data-label="Força">{{ ('%.1f%%/dia à mão' % f.custom) if f.custom is not none else f.forca }}</td>
-        <td data-label="Duração" class="r">{{ f.dur | round(2) }} {{ f.unidade }}</td></tr>
-    {% endfor %}
-  </tbody></table></div>
+{% if comparing %}
+<div class="card">
+  <div class="row" style="justify-content:space-between"><h3 style="margin:0">Comparação: {{ viewing.name }} vs. {{ comparing.name }}</h3>
+    <a class="btn small" href="{{ url_for('laboratorio', ver=viewing.id, ordenar=runs_order) }}">Fechar comparação</a></div>
+  <div class="tablewrap"><table class="coins">
+    <thead><tr><th></th><th class="r">{{ viewing.name }}</th><th class="r">{{ comparing.name }}</th></tr></thead>
+    <tbody>
+      <tr><td data-label="">Variação final</td>
+        <td data-label="{{ viewing.name }}" class="r num"><span class="{{ 'up' if viewing.result.final_pct >= 0 else 'down' }}">{{ '%+.2f' % viewing.result.final_pct }}%</span></td>
+        <td data-label="{{ comparing.name }}" class="r num"><span class="{{ 'up' if comparing.result.final_pct >= 0 else 'down' }}">{{ '%+.2f' % comparing.result.final_pct }}%</span></td></tr>
+      <tr><td data-label="">Ciclos</td>
+        <td data-label="{{ viewing.name }}" class="r num">{{ viewing.result.cycles }}</td>
+        <td data-label="{{ comparing.name }}" class="r num">{{ comparing.result.cycles }}</td></tr>
+      <tr><td data-label="">Pior perda por operação</td>
+        <td data-label="{{ viewing.name }}" class="r num">{{ '%.2f' % viewing.result.worst_loss_pct }}%</td>
+        <td data-label="{{ comparing.name }}" class="r num">{{ '%.2f' % comparing.result.worst_loss_pct }}%</td></tr>
+      <tr><td data-label="">Estado final</td>
+        <td data-label="{{ viewing.name }}"><span class="pill {{ states[viewing.result.status][1] }}">{{ states[viewing.result.status][0] }}</span></td>
+        <td data-label="{{ comparing.name }}"><span class="pill {{ states[comparing.result.status][1] }}">{{ states[comparing.result.status][0] }}</span></td></tr>
+      <tr><td data-label="">Proteções</td>
+        <td data-label="{{ viewing.name }}">{{ viewing.result.protections | join(', ') if viewing.result.protections else 'nenhuma' }}</td>
+        <td data-label="{{ comparing.name }}">{{ comparing.result.protections | join(', ') if comparing.result.protections else 'nenhuma' }}</td></tr>
+      <tr><td data-label="">Par · capital · seed</td>
+        <td data-label="{{ viewing.name }}" class="num">{{ viewing.pair }} · {{ '%g' % viewing.capital }} USDT · {{ viewing.seed }}</td>
+        <td data-label="{{ comparing.name }}" class="num">{{ comparing.pair }} · {{ '%g' % comparing.capital }} USDT · {{ comparing.seed }}</td></tr>
+    </tbody>
+  </table></div>
+  <div class="row">
+    {% if viewing.equity_chart %}<div style="flex:1;min-width:260px"><p class="tag">{{ viewing.name }}</p>
+      <svg viewBox="0 0 {{ viewing.equity_chart.w }} {{ viewing.equity_chart.h }}" width="100%" role="img" aria-label="Capital de {{ viewing.name }}">
+        <polyline points="{{ viewing.equity_chart.line }}" fill="none" stroke="var(--accent)" stroke-width="2.5"/></svg></div>{% endif %}
+    {% if comparing.equity_chart %}<div style="flex:1;min-width:260px"><p class="tag">{{ comparing.name }}</p>
+      <svg viewBox="0 0 {{ comparing.equity_chart.w }} {{ comparing.equity_chart.h }}" width="100%" role="img" aria-label="Capital de {{ comparing.name }}">
+        <polyline points="{{ comparing.equity_chart.line }}" fill="none" stroke="var(--sim)" stroke-width="2.5"/></svg></div>{% endif %}
+  </div>
 </div>
+{% endif %}
 
 {% if pchart %}
 <div class="card">
-  <h3>Preço e negócios do ensaio</h3>
+  <h3>Gráfico do cenário</h3>
   <svg class="pchart" viewBox="0 0 {{ pchart.w }} {{ pchart.h }}" width="100%" role="img" aria-labelledby="lb-t">
     <title id="lb-t">Preço e negócios do ensaio {{ viewing.name }}</title>
+    {% for pb in pchart.phase_bands %}<rect class="ch-phase {{ pb.tipo }}" x="{{ pb.x }}" y="{{ pchart.mt }}" width="{{ pb.w }}" height="{{ pchart.h - pchart.mt - pchart.mb }}"/>{% endfor %}
     {% if pchart.band %}<rect class="ch-band" x="{{ pchart.ml }}" y="{{ pchart.band.y }}" width="{{ pchart.w - pchart.ml - pchart.mr }}" height="{{ pchart.band.h }}"/>{% endif %}
     {% for t in pchart.yticks %}<text class="ch-ax" x="{{ pchart.ml - 6 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.label }}</text>{% endfor %}
     {% for t in pchart.ticks %}<text class="ch-ax" x="{{ t.x }}" y="{{ pchart.h - 8 }}" text-anchor="{{ 'start' if loop.first else 'end' if loop.last else 'middle' }}">{{ t.label }}</text>{% endfor %}
@@ -115,7 +214,18 @@ as estatísticas nem a capacidade do sistema.</p>
       {% else %}<path class="ch-liq" d="M{{ m.x - 5 }},{{ m.y - 5 }} L{{ m.x + 5 }},{{ m.y + 5 }} M{{ m.x + 5 }},{{ m.y - 5 }} L{{ m.x - 5 }},{{ m.y + 5 }}"/>{% endif %}
       </g>
     {% endfor %}
+    {% for e in pchart.events %}
+      <g><title>{{ e.tip }}</title><line class="ch-ev" x1="{{ e.x }}" y1="14" x2="{{ e.x }}" y2="{{ pchart.h - pchart.mb }}"/>
+      <text class="ch-evtxt" x="{{ e.x + 3 }}" y="{{ 24 + (loop.index0 % 3) * 11 }}">{{ e.label }}</text></g>
+    {% endfor %}
   </svg>
+  <p class="legend tag">
+    <span><i class="sw" style="background:var(--accent)"></i>Compra</span>
+    <span><i class="sw" style="background:var(--ch-sell)"></i>Venda</span>
+    <span><i class="sw" style="background:var(--gain-soft);border:1px solid var(--gain)"></i>Fase em alta</span>
+    <span><i class="sw" style="background:var(--loss-soft);border:1px solid var(--loss)"></i>Fase em baixa</span>
+    <span><i class="sw" style="background:var(--accent-soft);border:1px solid var(--accent)"></i>Fase lateral</span>
+  </p>
   <p class="tag">Mostra, no máximo, os últimos 7 dias do guião.</p>
 </div>
 {% endif %}
@@ -130,19 +240,204 @@ as estatísticas nem a capacidade do sistema.</p>
 </div>
 {% endif %}
 
+<div class="card"><h3>Fases do guião</h3>
+  <div class="tablewrap"><table class="coins"><thead><tr><th>Tipo</th><th>Força</th><th class="r">Duração</th></tr></thead><tbody>
+    {% for f in viewing.script %}
+      <tr><td data-label="Tipo">{{ f.tipo | capitalize }}</td>
+        <td data-label="Força">{{ ('%.1f%%/dia à mão' % f.custom) if f.custom is not none else f.forca }}</td>
+        <td data-label="Duração" class="r">{{ f.dur | round(2) }} {{ f.unidade }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</div>
+
 <div class="card"><h3>Eventos</h3>
-  {% for e in viewing.result.events %}<p style="margin:4px 0">{{ e.detail }}</p>{% else %}<p class="tag">Sem eventos.</p>{% endfor %}
+  <ul class="evlist">
+    {% for e in viewing.result.events %}<li><span>{{ e.detail }}</span><span class="t">{{ (e.ts / 1000) | int | datefmt }}</span></li>
+    {% else %}<li><span class="tag">Sem eventos.</span></li>{% endfor %}
+  </ul>
 </div>
 {% endif %}
 
-<div class="card"><h3>Ensaios guardados</h3>
-  {% if runs %}<div class="tablewrap"><table class="coins"><thead><tr><th>Nome</th><th>Par</th><th>Seed</th><th>Quando</th><th></th></tr></thead><tbody>
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <h3 style="margin:0">Ensaios guardados{% if runs_count %} ({{ runs_count }}){% endif %}</h3>
+    <div class="row" role="group" aria-label="Ordenar ensaios">
+      {% for o, label in [('recentes','Mais recentes'),('melhor','Melhor resultado'),('pior','Pior resultado')] %}
+        <a class="btn small {{ 'pri' if runs_order == o }}" href="{{ url_for('laboratorio', ordenar=o, ver=viewing.id if viewing else none) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% if runs %}<div class="tablewrap"><table class="coins"><thead><tr><th>Nome</th><th>Par</th><th class="r">Resultado</th><th>Seed</th><th>Quando</th><th></th></tr></thead><tbody>
     {% for r in runs %}
       <tr><td data-label="Nome"><a href="{{ url_for('laboratorio', ver=r.id) }}">{{ r.name }}</a></td>
-        <td data-label="Par">{{ r.pair }}</td><td data-label="Seed" class="num">{{ r.seed }}</td>
+        <td data-label="Par">{{ r.pair }}</td>
+        <td data-label="Resultado" class="r num">{% if r.final_pct is not none %}<span class="{{ 'up' if r.final_pct >= 0 else 'down' }}">{{ '%+.2f' % r.final_pct }}%</span>{% else %}-{% endif %}</td>
+        <td data-label="Seed" class="num">{{ r.seed }}</td>
         <td data-label="Quando" class="num">{{ r.created_ts }}</td>
-        <td><form method="post" action="{{ url_for('laboratorio_delete', run_id=r.id) }}" style="display:inline">
+        <td class="row" style="gap:6px;flex-wrap:nowrap">
+          {% if viewing and r.id != viewing.id %}<a class="btn small" href="{{ url_for('laboratorio', ver=viewing.id, vs=r.id, ordenar=runs_order) }}">Comparar</a>{% endif %}
+          <form method="post" action="{{ url_for('laboratorio_delete', run_id=r.id) }}" style="display:inline" data-confirm-delete>
           <input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn small danger">Apagar</button></form></td></tr>
-    {% endfor %}</tbody></table></div>{% else %}<p class="tag">Ainda sem ensaios guardados.</p>{% endif %}
+    {% endfor %}</tbody></table></div>
+    {% if runs_total_pages > 1 %}
+    <div class="row" style="margin-top:10px">
+      <a class="btn small" href="{{ url_for('laboratorio', ordenar=runs_order, pagina=runs_page - 1) }}" {% if runs_page <= 1 %}aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.45"{% endif %}>&larr; Anteriores</a>
+      <span class="tag">página {{ runs_page }} de {{ runs_total_pages }}</span>
+      <a class="btn small" href="{{ url_for('laboratorio', ordenar=runs_order, pagina=runs_page + 1) }}" {% if runs_page >= runs_total_pages %}aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.45"{% endif %}>Seguintes &rarr;</a>
+    </div>
+    {% endif %}
+  {% else %}<p class="tag">Ainda sem ensaios guardados.</p>{% endif %}
 </div>
+
+<script nonce="{{ csp_nonce }}">
+(function () {
+  var box = document.getElementById('phases');
+  var tpl = document.getElementById('phaseTemplate').innerHTML;
+  var n = 0;
+
+  function renumber() {
+    var cards = box.querySelectorAll('.lab-phase');
+    cards.forEach(function (card, idx) {
+      card.querySelector('.lab-phase-num').textContent = idx + 1;
+      card.querySelector('.lab-phase-head strong').textContent = 'Fase ' + (idx + 1);
+      var removeBtn = card.querySelector('[data-remove]');
+      removeBtn.hidden = cards.length <= 1;
+    });
+    var total = cards.length;
+    document.getElementById('phaseSummary').textContent = total + (total === 1 ? ' fase' : ' fases');
+  }
+
+  function addPhase() {
+    var html = tpl.split('__I__').join(String(n)).split('__N__').join(String(box.children.length + 1));
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html.trim();
+    var card = wrap.firstElementChild;
+    card.querySelector('[data-remove]').addEventListener('click', function () {
+      card.remove();
+      renumber();
+      renderPreview();
+    });
+    card.querySelectorAll('[data-custom-toggle]').forEach(function (radio) {
+      var pct = card.querySelector('.custom-pct');
+      card.querySelectorAll('input[type=radio][name^="phase_forca_"]').forEach(function (r) {
+        r.addEventListener('change', function () { pct.classList.toggle('show', radio.checked); });
+      });
+    });
+    box.appendChild(card);
+    n += 1;
+    renumber();
+  }
+
+  document.getElementById('addPhase').addEventListener('click', function () { addPhase(); renderPreview(); });
+  box.addEventListener('change', renderPreview);
+  box.addEventListener('input', renderPreview);
+
+  var radios = document.querySelectorAll('[data-src-radio]');
+  function syncSrc() {
+    var chosen = document.querySelector('[data-src-radio]:checked');
+    var value = chosen ? chosen.dataset.srcRadio : 'novo';
+    document.querySelectorAll('fieldset[data-toggle]').forEach(function (f) { f.hidden = f.dataset.toggle !== value; });
+  }
+  radios.forEach(function (r) { r.addEventListener('change', syncSrc); });
+  syncSrc();
+
+  document.querySelectorAll('form[data-confirm-delete]').forEach(function (f) {
+    f.addEventListener('submit', function (ev) {
+      if (!confirm('Apagar este ensaio? Não pode ser desfeito.')) { ev.preventDefault(); }
+    });
+  });
+
+  var seedInput = document.getElementById('seed');
+  var noSeedInput = document.getElementById('noSeed');
+  document.getElementById('randomSeed').addEventListener('click', function () {
+    seedInput.value = String(Math.floor(100000 + Math.random() * 900000));
+    renderPreview();
+  });
+  noSeedInput.addEventListener('change', function () {
+    seedInput.disabled = this.checked;
+    renderPreview();
+  });
+  seedInput.addEventListener('input', renderPreview);
+
+  // pré-visualização ao vivo (ilustrativa, sem chamar o motor): reflete as fases tal como estão nos cartões,
+  // começa como uma reta (sem fases) e ajusta-se a cada alteração de tipo/força/duração/unidade.
+  var previewSvg = document.getElementById('previewPchart');
+  var PRESETS_PCT_DIA = {{ presets | tojson }};
+  var UNIT_TO_HORAS = { minutos: 1 / 60, horas: 1, dias: 24 };
+
+  function readPhases() {
+    var out = [];
+    box.querySelectorAll('.lab-phase').forEach(function (card) {
+      var tipoEl = card.querySelector('input[name^="phase_tipo_"]:checked');
+      var forcaEl = card.querySelector('input[name^="phase_forca_"]:checked');
+      if (!tipoEl || !forcaEl) return;
+      var custom = card.querySelector('.custom-pct input');
+      var durEl = card.querySelector('input[name^="phase_dur_"]');
+      var unidEl = card.querySelector('select[name^="phase_unidade_"]');
+      var pctDia = (forcaEl.value === 'custom' && custom && custom.value) ? parseFloat(custom.value) : PRESETS_PCT_DIA[forcaEl.value];
+      var dur = parseFloat(durEl && durEl.value) || 0;
+      var horas = dur * (UNIT_TO_HORAS[unidEl && unidEl.value] || 24);
+      if (horas <= 0 || !isFinite(pctDia)) return;
+      out.push({ tipo: tipoEl.value, horas: horas, pctDia: pctDia || 0 });
+    });
+    return out;
+  }
+
+  function hashSeed(str) {
+    var h = 1779033703;
+    for (var i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+    return h >>> 0;
+  }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function renderPreview() {
+    if (!previewSvg) return;
+    var phases = readPhases();
+    var seedStr = noSeedInput.checked ? String(Math.random()) : (seedInput.value.trim() || 'sem-seed');
+    var rng = mulberry32(hashSeed(seedStr));    // mesma seed = mesma pré-visualização, tal como o motor a sério
+    var W = 760, H = 260, padL = 16, padR = 16, padT = 16, padB = 16;
+    var price = 100, t = 0, pts = [[0, price]], bands = [];
+    if (!phases.length) {
+      pts.push([1, price]);                    // sem fases ainda: só uma reta
+    } else {
+      phases.forEach(function (p) {
+        var dir = p.tipo === 'alta' ? 1 : p.tipo === 'baixa' ? -1 : 0;
+        var steps = Math.max(4, Math.min(60, Math.round(p.horas)));
+        var driftPerStep = dir * (p.pctDia / 100) * (p.horas / steps);
+        var start = t;
+        for (var i = 0; i < steps; i++) {
+          price = Math.max(1, price * (1 + driftPerStep) + (dir === 0 ? (rng() - 0.5) * price * 0.006 : 0));
+          t += 1;
+          pts.push([t, price]);
+        }
+        bands.push([start, t, p.tipo]);
+      });
+    }
+    var xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
+    var minX = 0, maxX = Math.max.apply(null, xs) || 1;
+    var minY = Math.min.apply(null, ys) * 0.97, maxY = Math.max.apply(null, ys) * 1.03;
+    if (maxY - minY < 0.01) { minY -= 1; maxY += 1; }     // reta perfeita: dá alguma altura ao eixo
+    function X(x) { return padL + (x - minX) / ((maxX - minX) || 1) * (W - padL - padR); }
+    function Y(y) { return H - padB - (y - minY) / ((maxY - minY) || 1) * (H - padT - padB); }
+    var svgc = '';
+    bands.forEach(function (b) {
+      svgc += '<rect class="ch-phase ' + b[2] + '" x="' + X(b[0]).toFixed(1) + '" y="' + padT + '" width="' +
+        Math.max(0, X(b[1]) - X(b[0])).toFixed(1) + '" height="' + (H - padT - padB) + '"/>';
+    });
+    svgc += '<polyline class="ch-price" points="' + pts.map(function (p) { return X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1); }).join(' ') + '"/>';
+    previewSvg.innerHTML = svgc;
+  }
+
+  renderPreview();   // arranca como uma reta (ainda sem fases)
+  addPhase();
+  renderPreview();
+})();
+</script>
 {% endblock %}

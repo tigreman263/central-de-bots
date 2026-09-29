@@ -50,23 +50,23 @@
 <div class="card">
   <h3>{{ '❌ BLOQUEADORES DA AUDITORIA' if v.blockers else '✅ ZERO BLOQUEADORES' }}</h3>
   {% if v.blockers %}
-  <table><thead><tr><th>Item</th><th>Motivo</th><th>Impacto</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="coins"><thead><tr><th>Item</th><th>Motivo</th><th>Impacto</th></tr></thead><tbody>
     {% for b in v.blockers %}
-      <tr><td><span class="pill {{ v.pills[b.status] }}">{{ v.icons[b.status] }} {{ b.name }}</span></td>
-        <td class="tag">{{ v.labels[b.status] }}{% if b.error %} — {{ b.error }}{% endif %}</td>
-        <td class="tag">{{ b.impact }}</td></tr>
+      <tr><td data-label="Item"><span class="pill {{ v.pills[b.status] }}">{{ v.icons[b.status] }} {{ b.name }}</span></td>
+        <td data-label="Motivo" class="tag">{{ v.labels[b.status] }}{% if b.error %} — {{ b.error | shorterr }}{% endif %}</td>
+        <td data-label="Impacto" class="tag">{{ b.impact }}</td></tr>
     {% endfor %}
-  </tbody></table>
+  </tbody></table></div>
   {% else %}<p class="tag">Nenhum requisito crítico está a falhar, parcial ou sem validar.</p>{% endif %}
 </div>
 
 <div class="card">
   <h3>Resumo por categoria</h3>
-  <table><tbody>
+  <div class="tablewrap"><table class="coins"><tbody>
     {% for cat in v.categories %}
-      <tr><td>{{ cat.dot }} {{ cat.cat }}</td><td class="r num">{{ cat.ok }}/{{ cat.total }}</td></tr>
+      <tr><td data-label="Categoria">{{ cat.dot }} {{ cat.cat }}</td><td data-label="Validados" class="r num">{{ cat.ok }}/{{ cat.total }}</td></tr>
     {% endfor %}
-  </tbody></table>
+  </tbody></table></div>
 </div>
 
 {% for cat in v.categories %}
@@ -92,13 +92,13 @@
 {% if v.history and v.history|length > 1 %}
 <div class="card">
   <h3>Histórico de validações</h3>
-  <table><thead><tr><th>Data</th><th class="r">✅</th><th class="r">❌</th><th class="r">⚠️</th><th class="r">❓</th><th class="r">Bloqueadores</th><th>Estado</th></tr></thead><tbody>
+  <div class="tablewrap"><table class="coins"><thead><tr><th>Data</th><th class="r">✅</th><th class="r">❌</th><th class="r">⚠️</th><th class="r">❓</th><th class="r">Bloqueadores</th><th>Estado</th></tr></thead><tbody>
     {% for h in v.history %}
-      <tr><td class="num">{{ h.ts | datefmt }}</td><td class="r num">{{ h.passou }}</td><td class="r num">{{ h.falhou }}</td>
-        <td class="r num">{{ h.parcial }}</td><td class="r num">{{ h.nao_validado }}</td><td class="r num">{{ h.blockers }}</td>
-        <td>{{ h.verdict }}</td></tr>
+      <tr><td data-label="Data" class="num">{{ h.ts | datefmt }}</td><td data-label="✅" class="r num">{{ h.passou }}</td><td data-label="❌" class="r num">{{ h.falhou }}</td>
+        <td data-label="⚠️" class="r num">{{ h.parcial }}</td><td data-label="❓" class="r num">{{ h.nao_validado }}</td><td data-label="Bloqueadores" class="r num">{{ h.blockers }}</td>
+        <td data-label="Estado">{{ h.verdict }}</td></tr>
     {% endfor %}
-  </tbody></table>
+  </tbody></table></div>
 </div>
 {% endif %}
 {% endif %}

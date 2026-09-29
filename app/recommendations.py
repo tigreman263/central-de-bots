@@ -18,13 +18,11 @@ DISCLAIMER = "Todos os números são pontos de partida a validar em simulação,
 
 FIELDS = {
     "capital": {
-        "summary": "Usa o valor real que pensas investir, para a simulação refletir a realidade.",
-        "profiles": [
-            ("Conservador", "Igual ao real (~560 €).", None),
-            ("Equilibrado", "Igual ao real, e uma segunda corrida de teste com 300 €.", None),
-            ("Arrojado", "Mais do que o real. Dá resultados enganadores.", None),
-        ],
-        "mistake": "Simular com 10 000 € e esperar o mesmo comportamento com 560 €.",
+        "summary": "O valor deve ser o mais parecido possível com o que tens mesmo na carteira, para a simulação "
+                    "refletir a realidade — não é um número a copiar de um exemplo.",
+        "profiles": [],
+        "mistake": "Simular com um valor muito diferente do real (ex.: 10 000 € quando tens 560 €) dá resultados "
+                   "enganadores: as ordens mínimas e as comissões pesam de forma muito diferente consoante o capital.",
         "small": "Com pouco capital, as ordens mínimas (~5-10 USDT) e as comissões (~0,1% por operação) pesam muito mais. "
                  "Poucas ordens maiores compensam mais do que muitas pequenas.",
     },

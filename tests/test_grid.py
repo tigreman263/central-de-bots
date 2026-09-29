@@ -145,6 +145,38 @@ def test_scenario_strong_rise_recenters_at_most_twice_per_day_and_never_in_a_loo
     assert e.s["base"] * 115 <= 0.65 * CAPITAL
 
 
+def test_recenter_never_discards_the_new_grids_initial_buy():
+    """Achado real de uso (Laboratório de Cenários): _rebuild_grid montava a grelha nova via setup(), que compra a
+    mercado o inventário dos degraus acima do preço (gasta "quote", soma a "base") — mas depois sobrescrevia "base"
+    só com o pó antigo de antes do recentrar, deitando fora essa compra: o capital "desaparecia" da contabilidade
+    numa só vela, sem qualquer perda real de mercado (equity a cair dezenas de % só por recentrar em alta)."""
+    e = new_engine()
+    path = flat(30) + line(100, 130, 200) + flat(1500, 130)              # sobe bem acima da grelha e fica lá
+    prev_equity, drops = None, []
+    for c in candles(path):
+        e.process_candle(c)
+        eq = e.equity(c[4])
+        if prev_equity is not None and eq < prev_equity * 0.9:           # queda de mais de 10% numa só vela
+            drops.append((c[0], prev_equity, eq))
+        prev_equity = eq
+    assert any(ev["kind"] == "recenter" for ev in e.new_events)          # confirma que o cenário testou um recentrar
+    assert drops == [], f"quedas súbitas de equity num só passo: {drops}"
+
+
+def test_a_recenter_the_risk_guard_would_refuse_never_crashes_the_step():
+    """Achado real de uso: _rebuild_grid chama setup(), que pode levantar GridRefused (ex.: o dinheiro que sobrou
+    já não chega para uma grelha segura ao preço novo) — isto propagava sem apanhar e derrubava o passo do bot
+    inteiro (500 no painel do Laboratório; no corredor real só era apanhado pelo try/except genérico do runner,
+    escondendo o problema em vez de o registar como um evento claro)."""
+    e = run(new_engine(), candles(flat(3)))
+    old_grid = e.grid
+    e.s["quote"], e.s["reserve"] = 2.0, 1.0                               # de propósito pouco para uma grelha nova
+    ok = e._rebuild_grid(e.last_ts + MIN, 100.0)                          # não deve levantar GridRefused
+    assert ok is False
+    assert e.grid is old_grid                                            # grelha antiga mantida, nada a meio
+    assert any(ev["kind"] == "guard" and "recusad" in ev["detail"] for ev in e.new_events)
+
+
 def test_wick_of_4_percent_does_not_trigger_the_stop_loss():
     path = flat(60) + [96] * 3 + flat(60)                                # pavio de -4% durante 3 minutos
     e = run(new_engine(), candles(path))

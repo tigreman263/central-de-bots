@@ -18,7 +18,7 @@ def _num(x):
     return f"{x:.6g}"
 
 
-def build(candles, grid, fills, events, orders, window="24h", w=760, h=340):
+def build(candles, grid, fills, events, orders, window="24h", w=760, h=340, phase_bands=None):
     """`candles`: [(ts, o, h, l, c)], `fills`/`events`: linhas com ts (ms). Devolve um dicionário para o modelo, ou None."""
     if window not in WINDOWS:
         window = "24h"
@@ -81,9 +81,15 @@ def build(candles, grid, fills, events, orders, window="24h", w=760, h=340):
     band = None
     if grid:
         band = {"y": y(grid["upper"]), "h": y(grid["lower"]) - y(grid["upper"])}
+    phases = []
+    for pb in phase_bands or []:
+        if pb["end_ts"] < t0 or pb["start_ts"] > t1:
+            continue                                     # fase inteira fora da janela: não desenha
+        bx = x(max(pb["start_ts"], t0))
+        phases.append({"x": bx, "w": max(0.0, x(min(pb["end_ts"], t1)) - bx), "tipo": pb["tipo"]})
     return {"w": w, "h": h, "ml": ml, "mr": mr, "mt": mt, "mb": mb, "line": line, "levels": levels, "marks": marks,
             "events": evs, "ticks": ticks, "yticks": yticks, "window": window, "last": (x(cs_last_ts + 60_000), y(last)),
-            "last_price": _num(last), "summary": summary, "band": band,
+            "last_price": _num(last), "summary": summary, "band": band, "phase_bands": phases,
             "lower": {"y": y(grid["lower"]), "label": _num(grid["lower"])} if grid else None,
             "upper": {"y": y(grid["upper"]), "label": _num(grid["upper"])} if grid else None,
             "stop": {"y": y(grid["stop"]), "label": _num(grid["stop"])} if grid else None}

@@ -706,7 +706,9 @@ class Engine:
             self.activate(ts)
 
     def _rebuild_grid(self, ts, c):
-        """Monta uma grelha nova ao preço `c` sem perder nada do bot: contadores, custo do pó, ids e o dinheiro que sobrou."""
+        """Monta uma grelha nova ao preço `c` sem perder nada do bot: contadores, custo do pó, ids e o dinheiro que
+        sobrou. Devolve False (grelha antiga mantida, nada mudado) se a guarda de risco recusar a grelha nova a este
+        preço — nunca deixa a exceção propagar e derrubar o passo do bot inteiro."""
         s = self.s
         keep = {k: s[k] for k in ("cycles", "fees", "realized", "worst_cycle", "worst_loss_pct", "wins",
                                   "stop_events", "recenters", "started_ts", "initial_capital",
@@ -716,11 +718,20 @@ class Engine:
         cash_total = s["quote"] + s["reserve"]
         original = self.capital
         self.capital = cash_total          # a nova grelha usa o dinheiro que sobrou (com lucros/perdas)
-        self.setup(ts, c)
-        self.capital = original
+        try:
+            self.setup(ts, c)
+        except G.GridRefused as exc:
+            self._event(ts, "guard", f"Recentrar em {c:.6g} recusado pela guarda de risco: {exc} Grelha mantida.")
+            return False
+        finally:
+            self.capital = original
         s.update(keep)
-        s["base"] = dust
+        # soma-se ao pó antigo (não substitui): setup() já zerou "base" e comprou, a mercado, os degraus da grelha
+        # nova que ficam acima do preço atual — sobrescrever com só o pó antigo deitava fora essa compra a dinheiro
+        # já gasto, fazendo o capital "desaparecer" da contabilidade num recentrar (achado real de uso).
+        s["base"] += dust
         s["reserve"] = cash_total - self.grid["budget"]
+        return True
 
     def activate(self, ts):
         """Ativação individual de um bot parado (botão ATIVAR). Nunca é automática. Devolve False se não puder.
@@ -813,9 +824,9 @@ class Engine:
         if self.status == RUNNING and s["above_upper"] >= self.p["upper_wait_minutes"]:
             done = s["recenters"].get(day, 0)
             if self._is_flat(c) and done < self.p["max_recenter_per_day"]:
-                s["recenters"][day] = done + 1
-                self._rebuild_grid(ts, c)
-                self._event(ts, "recenter", f"Grelha recentrada em {c:.6g} ({done + 1}.ª vez hoje).")
+                if self._rebuild_grid(ts, c):          # só conta para o limite diário e anuncia se recentrou mesmo
+                    s["recenters"][day] = done + 1
+                    self._event(ts, "recenter", f"Grelha recentrada em {c:.6g} ({done + 1}.ª vez hoje).")
             s["above_upper"] = 0
 
         if ts % 3_600_000 == 0:

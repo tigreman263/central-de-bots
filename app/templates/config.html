@@ -275,6 +275,8 @@
 <section data-cat="sistema"{% if cat != 'sistema' %} hidden{% endif %}>
   <div class="card stack">
     <h3>Sistema</h3>
+    <p class="tag">Lido ao carregar a página, às {{ (sysinfo.read_ts / 1000) | int | datefmt }} UTC — muda de categoria
+      não atualiza isto; recarrega a página para ver números novos.</p>
     <div class="tablewrap"><table class="coins"><tbody>
       <tr><td data-label="Item">Corredor dos bots</td><td data-label="Valor">{{ state(sysinfo.runner.alive, 'ativo', 'parado') }} <span class="tag">{{ sysinfo.runner.text }}</span></td></tr>
       <tr><td data-label="Item">Modo seguro (PARAR TUDO)</td><td data-label="Valor">{{ state(not sysinfo.emergency, 'desligado', 'ATIVO') }}</td></tr>

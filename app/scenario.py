@@ -24,12 +24,18 @@ CREATE TABLE IF NOT EXISTS scenario_runs (
 
 DIR = {"alta": 1, "lateral": 0, "baixa": -1}
 UNIT_TO_MIN = {"minutos": 1, "horas": 60, "dias": 1440}
-PRESETS = {"suave": 1.5, "moderada": 5.0, "forte": 15.0}   # deriva %/dia (magnitude; o sinal vem de DIR)
-VOL_PCT_PER_MIN = 0.06     # desvio-padrão do ruído por minuto (%): dá textura de mercado real, mesmo em lateral
+PRESETS = {"suave": 2.0, "moderada": 7.0, "forte": 20.0}   # deriva %/dia (magnitude; o sinal vem de DIR)
+# desvio-padrão do ruído por minuto (%): dá textura de mercado real, mesmo em lateral. Calibrado para que a deriva
+# domine o ruído acumulado (senão uma fase "alta" podia terminar em queda por puro ruído — achado real de uso: com
+# 0.06 uma fase "moderada" de 1h tinha ~33% de hipótese de terminar negativa apesar de escolhida como alta).
+VOL_PCT_PER_MIN = 0.035
 
 
 def init(conn):
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(scenario_runs)")}
+    if cols and "bands" not in cols:                      # tabela de uma versão anterior a bandas por fase no gráfico
+        conn.execute("ALTER TABLE scenario_runs ADD COLUMN bands TEXT NOT NULL DEFAULT '[]'")
     conn.commit()
 
 
@@ -75,7 +81,8 @@ def run_engine(pair, capital, rules, params, candles):
     return {"status": eng.status, "reason": eng.reason, "final_equity": final_equity, "final_pct": final_pct,
             "cycles": eng.s.get("cycles", 0), "worst_loss_pct": eng.s.get("worst_loss_pct", 0.0),
             "protections": protections, "equity": eng.new_equity, "events": eng.new_events,
-            "fills": eng.new_fills, "orders": eng.orders, "grid": eng.grid, "candles": [list(c) for c in candles]}
+            "fills": eng.new_fills, "orders": eng.orders, "grid": eng.grid, "candles": [list(c) for c in candles],
+            "params": dict(eng.p)}   # já com os valores por defeito aplicados (não só o que o utilizador escreveu)
 
 
 def save(conn, name, pair, capital, rules, params, script, seed, bands, result):
@@ -99,9 +106,25 @@ def get(conn, run_id):
             "created_ts": row["created_ts"]}
 
 
-def list_runs(conn):
-    return [dict(r) for r in
-            conn.execute("SELECT id, name, pair, seed, created_ts FROM scenario_runs ORDER BY id DESC")]
+ORDERS = ("recentes", "melhor", "pior")
+
+
+def list_runs(conn, order="recentes"):
+    """Lista leve (sem candles/eventos) para a tabela de ensaios guardados, com o resultado final para ordenar."""
+    rows = conn.execute("SELECT id, name, pair, seed, created_ts, result FROM scenario_runs").fetchall()
+    items = []
+    for r in rows:
+        result = json.loads(r["result"])
+        items.append({"id": r["id"], "name": r["name"], "pair": r["pair"], "seed": r["seed"],
+                      "created_ts": r["created_ts"], "final_pct": result.get("final_pct"),
+                      "status": result.get("status")})
+    if order == "melhor":
+        items.sort(key=lambda x: -(x["final_pct"] if x["final_pct"] is not None else float("-inf")))
+    elif order == "pior":
+        items.sort(key=lambda x: x["final_pct"] if x["final_pct"] is not None else float("inf"))
+    else:
+        items.sort(key=lambda x: -x["id"])
+    return items
 
 
 def delete(conn, run_id):

@@ -3,6 +3,7 @@
 {% block body %}
 <h2>Estatísticas</h2>
 <p class="sub">Resultados dos bots (simulação e Testnet), sempre líquidos de comissões. Valores em USDT{% if cur != 'USDT' %} convertidos para {{ cur }}{% endif %}.</p>
+{% if rate_missing %}<p class="flash warnbar">Sem taxa EUR disponível agora (liga a chave real no Portefólio, ou tenta outra vez). Valores mostrados em USDT.</p>{% endif %}
 {% if not runner.alive %}<p class="flash error">{{ runner.text }}</p>{% endif %}
 
 {% if compare %}

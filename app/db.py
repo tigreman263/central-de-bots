@@ -13,6 +13,8 @@ DEFAULTS = {
     "max_loss_trade": "2",
     "profit_to_reserve": "50",
     "pause_drawdown": "20",
+    "min_bot_capital": "20",   # abaixo disto o spread/comissões comem o lucro; aplica-se a bots reais/simulação/Testnet
+
     "exclusions": "memecoins,leveraged",
     # alertas: por canal, ligado ou não e a partir de que gravidade envia (ver notify.py)
     "alert_telegram_on": "1",
@@ -104,6 +106,27 @@ def recent_log(conn, limit=50):
     return conn.execute(
         "SELECT ts, action, detail FROM audit ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
+
+
+def search_log(conn, q=None, limit=200):
+    """Como recent_log, mas filtra por texto (ação ou detalhe) e mostra mais linhas, para a página de Alertas."""
+    if q:
+        like = f"%{q}%"
+        return conn.execute(
+            "SELECT ts, action, detail FROM audit WHERE action LIKE ? OR detail LIKE ? ORDER BY id DESC LIMIT ?",
+            (like, like, limit)).fetchall()
+    return conn.execute("SELECT ts, action, detail FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def delete_log(conn, q=None):
+    """Apaga definitivamente o registo de ações (tudo, ou só o que combina com q). Devolve quantas linhas apagou."""
+    if q:
+        like = f"%{q}%"
+        cur = conn.execute("DELETE FROM audit WHERE action LIKE ? OR detail LIKE ?", (like, like))
+    else:
+        cur = conn.execute("DELETE FROM audit")
+    conn.commit()
+    return cur.rowcount
 
 
 def parse_decimal_pt(raw):

@@ -42,7 +42,9 @@
   <div class="card stack">
     <div class="field"><label for="capital">{{ 'Capital do bot na Testnet (USDT fictícios)' if mode == 'testnet' else 'Capital virtual do bot (USDT)' }}</label>
       <input id="capital" name="capital" inputmode="decimal" value="{{ capital }}" required>
-      <small>Sugestão: metade do trading teórico do teu portefólio (≈15% do total). É dinheiro fictício: não vende nada da tua conta.</small></div>
+      <small>Sugestão: metade do trading teórico do teu portefólio (≈15% do total). É dinheiro fictício: não vende nada da tua conta.
+        Mínimo definido em <a href="{{ url_for('config', cat='capital') }}">Configuração</a>: {{ '%g' % min_bot_capital }} USDT.
+        A soma de todos os bots ativos não pode ultrapassar a fatia "Trading" da divisão de capital.</small></div>
   </div>
   <div class="card"><label style="cursor:pointer"><input type="checkbox" name="never_below_cost" value="1">
     <b>Nunca vender abaixo do custo</b> (opcional, desligada por defeito). Se o stop-loss disparar ou pararem o bot com prejuízo, a moeda fica guardada em vez de ser vendida; o bot pausa e espera.</label></div>

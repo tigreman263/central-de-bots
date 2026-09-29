@@ -159,6 +159,58 @@ def test_pair_outside_suggestions_or_tiny_capital_is_refused(env):
     assert "Escolhe um dos pares" in html or "grelha segura" in html
 
 
+def test_capital_below_the_configured_minimum_is_refused(env):
+    """Impede bots demasiado pequenos (o spread e as comissões comem o lucro)."""
+    c, fm, app = env
+    form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "15", "step": "create"}
+    html = c.post("/bots/novo", data=form, follow_redirects=True).get_data(as_text=True)
+    assert "abaixo do mínimo" in html
+    assert botstore.all_bots(conn_of(app)) == []
+
+
+def test_raising_the_configured_minimum_refuses_a_previously_fine_capital(env):
+    c, fm, app = env
+    conn = conn_of(app)
+    db.set_many(conn, {"min_bot_capital": "80"})
+    form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "77", "step": "create"}
+    html = c.post("/bots/novo", data=form, follow_redirects=True).get_data(as_text=True)
+    assert "abaixo do mínimo" in html
+    assert botstore.all_bots(conn) == []
+
+
+def test_preview_shows_what_percentage_of_the_trading_capital_the_bot_takes(env):
+    c, fm, app = env
+    form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "77", "step": "preview"}
+    html = c.post("/bots/novo", data=form).get_data(as_text=True)
+    cfg = db.get_all(conn_of(app))
+    trading_capital = float(cfg["capital_eur"]) * float(cfg["split_trading"]) / 100
+    expected_pct = 77 / trading_capital * 100
+    assert "capital de trading" in html
+    assert f"{expected_pct:.1f}%" in html
+
+
+def test_several_bots_cannot_together_exceed_the_trading_slice(env):
+    """O achado do utilizador: dava para criar vários bots, cada um dentro do capital sugerido, mas que juntos
+    ultrapassavam a fatia 'Trading' (560 * 30% = 168 USDT por omissão). Agora o segundo excesso é recusado."""
+    c, fm, app = env
+    conn = conn_of(app)
+    for _ in range(2):
+        form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "60", "step": "create"}
+        r = c.post("/bots/novo", data=form)
+        assert r.status_code == 302
+    assert len(botstore.all_bots(conn)) == 2                     # 120 USDT usados
+    form = {"csrf": tok(c, "/bots/novo"), "pair": PAIR, "capital": "60", "step": "create"}
+    html = c.post("/bots/novo", data=form, follow_redirects=True).get_data(as_text=True)
+    assert "ultrapassaria" in html
+    assert len(botstore.all_bots(conn)) == 2
+
+
+def test_bot_new_page_shows_the_configured_minimum(env):
+    c, fm, app = env
+    html = c.get("/bots/novo").get_data(as_text=True)
+    assert "20" in html and "Mínimo definido em" in html
+
+
 # ---------- corredor ----------
 def make_bot(app, capital=77.0):
     conn = conn_of(app)

@@ -11,7 +11,8 @@
     <p class="tag num">Preço atual {{ '%.6g' % price }} · degrau mínimo {{ '%.2f' % g.step_pct }}% (cobre comissões e deslizamento de {{ '%.2f' % cost }}% com folga)</p></div>
   <div class="card"><h3>{{ 'Capital na Testnet' if mode == 'testnet' else 'Capital virtual' }}</h3>
     <p class="num" style="margin:0">{{ '%g' % capital }} USDT</p>
-    <p class="tag num">{{ '%.2f' % g.budget }} na grelha · {{ '%.2f' % (capital - g.budget) }} de reserva de caixa ({{ '%g' % p.cash_reserve_pct }}%), nunca gasta</p></div>
+    <p class="tag num">{{ '%.2f' % g.budget }} na grelha · {{ '%.2f' % (capital - g.budget) }} de reserva de caixa ({{ '%g' % p.cash_reserve_pct }}%), nunca gasta</p>
+    {% if capital_pct is not none %}<p class="tag num">Isto representa {{ '%.1f' % capital_pct }}% do capital de trading ({{ '%.2f' % trading_capital }} USDT).</p>{% endif %}</div>
   <div class="card"><h3>Regras do par</h3>
     <p class="tag num" style="margin:0">Ordem mínima {{ '%g' % rules.min_notional }} USDT · passo de preço {{ rules.tick }} · passo de quantidade {{ rules.step }}</p></div>
 </div>

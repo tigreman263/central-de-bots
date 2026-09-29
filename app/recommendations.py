@@ -73,6 +73,18 @@ FIELDS = {
         "small": "Com ~168 € de trading, 10% são ~17 €. Uma variação normal pode parar o bot cedo. "
                  "Ajusta depois de veres quantas paragens falsas houve em simulação.",
     },
+    "min_bot_capital": {
+        "summary": "Um bot pequeno de mais perde para o spread e as comissões antes de ganhar nada. Aplica-se a "
+                    "bots reais, em simulação e na Testnet — nunca ao Laboratório de Cenários.",
+        "profiles": [
+            ("Conservador", "50 USDT ou mais: folga confortável para uma grelha de vários degraus.", {"min_bot_capital": 50}),
+            ("Equilibrado", "20 USDT (ponto de partida).", {"min_bot_capital": 20}),
+            ("Arrojado", "5-10 USDT: raia o mínimo da Binance, a grelha fica com poucos degraus.", {"min_bot_capital": 8}),
+        ],
+        "mistake": "Criar vários bots pequenos em vez de um maior — cada um paga a comissão mínima e o spread à parte.",
+        "small": "A ordem mínima da Binance ronda 5-10 USDT; uma grelha precisa de vários degraus acima disso "
+                 "(reserva de caixa incluída) para sobrar espaço real de negociação.",
+    },
     "pair_min_volume": {
         "summary": "Volume negociado nas últimas 24 h, em milhões de USDT. Mais volume = ordens executadas sem mexer no preço.",
         "profiles": [

@@ -15,6 +15,7 @@ LABELS = {
     "max_loss_trade": "Perda máxima por operação (%)",
     "profit_to_reserve": "Lucro para a reserva (%)",
     "pause_drawdown": "Pausa se o trading cair (%)",
+    "min_bot_capital": "Capital mínimo por bot (USDT)",
     "exclusions": "Categorias a evitar",
     "pair_min_volume": "Pares: volume mínimo em 24 h (M USDT)",
     "pair_max_spread": "Pares: spread máximo (%)",
@@ -67,6 +68,7 @@ def parse_config(form):
         ("max_loss_trade", 0.5, 5),
         ("profit_to_reserve", 0, 100),
         ("pause_drawdown", 5, 50),
+        ("min_bot_capital", 1, 1_000_000),
     ]:
         v = _number(form, key, low, high, errors)
         if v is not None:

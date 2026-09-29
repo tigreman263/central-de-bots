@@ -34,7 +34,7 @@ def test_saving_a_settings_category_keeps_you_on_it_and_still_asks_for_confirmat
     cfg = db.get_all(conn)
     form = {"csrf": csrf(c, "/configuracao?cat=risco"), "cat": "risco", "step": "preview",
             **{k: cfg[k] for k in ("capital_eur", "split_reserve", "split_trading", "split_cash", "profit_to_reserve",
-                                   "pause_drawdown")}, "max_loss_trade": "3"}
+                                   "pause_drawdown", "min_bot_capital")}, "max_loss_trade": "3"}
     for k, v in cfg.items():
         if k.startswith("risk_"):
             form[k] = v
@@ -62,6 +62,53 @@ def test_alerts_area_explains_severities_channels_and_privacy(panel):
                  "@BotFather", "CallMeBot", "Cloud API", "Phone number ID", "nunca chaves nem valores da carteira",
                  "janela de 24 h"):
         assert text in html, text
+
+
+# ---------- registo de ações: filtro e apagar definitivamente ----------
+def test_the_log_can_be_filtered_by_text(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    db.log(conn, "Chave da Binance guardada (só leitura)", "abc***xyz")
+    db.log(conn, "PARAR TUDO", "Todos os bots parados e ordens abertas canceladas.")
+    html = c.get("/alertas?q=PARAR").get_data(as_text=True)
+    assert "PARAR TUDO" in html and "Chave da Binance guardada" not in html
+    empty = c.get("/alertas?q=coisa-que-nao-existe").get_data(as_text=True)
+    assert "Nada encontrado" in empty
+
+
+def test_deleting_the_filtered_log_only_removes_matches(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    db.log(conn, "Chave da Binance guardada (só leitura)", "abc***xyz")
+    db.log(conn, "PARAR TUDO", "Todos os bots parados e ordens abertas canceladas.")
+    r = c.post("/alertas/apagar", data={"csrf": csrf(c, "/alertas"), "q": "PARAR"}, follow_redirects=True)
+    html = r.get_data(as_text=True)
+    assert "Apagadas 1 entrada" in html
+    actions = [row["action"] for row in db.recent_log(conn, 50)]
+    assert "PARAR TUDO" not in actions and "Chave da Binance guardada (só leitura)" in actions
+
+
+def test_deleting_the_whole_log_removes_everything(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    db.log(conn, "Chave da Binance guardada (só leitura)", "abc***xyz")
+    db.log(conn, "PARAR TUDO", "Todos os bots parados e ordens abertas canceladas.")
+    before = len(db.recent_log(conn, 200))
+    r = c.post("/alertas/apagar", data={"csrf": csrf(c, "/alertas"), "q": ""}, follow_redirects=True)
+    assert f"Apagadas {before} entrada" in r.get_data(as_text=True)
+    remaining = db.recent_log(conn, 50)                          # só sobra o registo da própria limpeza
+    assert len(remaining) == 1 and remaining[0]["action"] == "Registo de ações apagado"
+
+
+def test_deleting_with_no_matches_deletes_nothing(panel):
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    before = {row["action"] for row in db.recent_log(conn, 200)}
+    r = c.post("/alertas/apagar", data={"csrf": csrf(c, "/alertas"), "q": "coisa-que-nao-existe"},
+               follow_redirects=True)
+    assert "Nada para apagar" in r.get_data(as_text=True)
+    after = {row["action"] for row in db.recent_log(conn, 200)}
+    assert before == after
 
 
 def test_alert_preferences_are_saved_and_default_to_telegram_attention_whatsapp_high(panel):
@@ -396,10 +443,21 @@ def test_the_duplicate_is_refused_when_the_pair_or_the_testnet_keys_are_missing(
     assert len(botstore.all_bots(conn)) == 2
 
 
+def test_a_twin_bot_counts_double_against_the_trading_slice(panel):
+    """capital_eur=560, split_trading=30% -> fatia de 168 USDT. Um único bot de 90 cabe, mas o duplicado ocupa
+    a fatia duas vezes (dois bots de 90), o que já não cabe."""
+    c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    r = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="90", step="create"), follow_redirects=True)
+    assert "ultrapassaria" in r.get_data(as_text=True)
+    assert not botstore.all_bots(conn)
+
+
 # ---------- saldo da Testnet: ajusta o capital em vez de recusar ----------
 def test_capital_is_adjusted_to_the_free_testnet_balance_for_both_twin_bots(panel):
     c, ex, app, tmp = panel
     conn = db.connect(app.config["DB_PATH"])
+    db.set_many(conn, {"capital_eur": "200000"})           # fatia de trading grande, para isolar do ajuste da Testnet
     ex.free_balance = lambda asset: 400.0                                             # a Testnet só tem 400 USDT livres
     data = _sim_form(c, twin="1", capital="10000")
     preview = c.post("/bots/novo", data=data).get_data(as_text=True)
@@ -416,6 +474,7 @@ def test_capital_is_adjusted_to_the_free_testnet_balance_for_both_twin_bots(pane
 def test_no_adjustment_when_the_testnet_has_enough_and_a_clear_error_when_it_has_almost_nothing(panel):
     c, ex, app, tmp = panel
     conn = db.connect(app.config["DB_PATH"])
+    db.set_many(conn, {"capital_eur": "200000"})           # fatia de trading grande, para isolar do ajuste da Testnet
     ok = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="200")).get_data(as_text=True)
     assert "capital foi ajustado" not in ok and 'name="capital" value="200.0"' in ok
     ex.free_balance = lambda asset: 3.0
@@ -425,6 +484,8 @@ def test_no_adjustment_when_the_testnet_has_enough_and_a_clear_error_when_it_has
 
 def test_only_the_grid_budget_has_to_fit_not_the_cash_reserve(panel):
     c, ex, app, tmp = panel
+    conn = db.connect(app.config["DB_PATH"])
+    db.set_many(conn, {"capital_eur": "200000"})           # fatia de trading grande, para isolar do ajuste da Testnet
     ex.free_balance = lambda asset: 160.0                     # capital 200: orçamento da grelha = 150 (75%), cabe
     page = c.post("/bots/novo", data=_sim_form(c, twin="1", capital="200")).get_data(as_text=True)
     assert "capital foi ajustado" not in page and 'name="capital" value="200.0"' in page

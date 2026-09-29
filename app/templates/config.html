@@ -55,6 +55,10 @@
         <input id="split_cash" name="split_cash" inputmode="decimal" value="{{ cfg.split_cash }}" required>
         <small>Margem de segurança em stablecoins. As três percentagens têm de somar 100%.</small>
         {{ recs('split') }}</div>
+      <div class="field"><label for="min_bot_capital">Capital mínimo por bot (USDT)</label>
+        <input id="min_bot_capital" name="min_bot_capital" inputmode="decimal" value="{{ cfg.min_bot_capital }}" required>
+        <small>Recusa criar um bot (real, simulação ou Testnet) abaixo deste valor. Não se aplica ao Laboratório de Cenários.</small>
+        {{ recs('min_bot_capital') }}</div>
     </div>
   </section>
 

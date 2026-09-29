@@ -25,6 +25,11 @@
 {% endif %}
 
 <h3 style="margin:0 0 8px">Registo de ações</h3>
+<form method="get" action="{{ url_for('alerts_page') }}" class="row" style="margin-bottom:12px">
+  <input type="search" name="q" value="{{ q }}" placeholder="Filtrar por texto (ação ou detalhe)…" style="flex:1;min-width:0">
+  <button class="btn">Filtrar</button>
+  {% if q %}<a class="btn" href="{{ url_for('alerts_page') }}">Limpar</a>{% endif %}
+</form>
 {% if rows %}
 <div class="stack">
   {% for r in rows %}
@@ -33,7 +38,23 @@
       <p class="tag num">{{ r.ts.replace('T', ' ')[:19] }} UTC</p></div>
   {% endfor %}
 </div>
+<form method="post" action="{{ url_for('alerts_delete') }}" class="row" style="margin-top:12px" data-confirm-delete>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="q" value="{{ q }}">
+  <button class="btn danger">{{ 'Apagar estes resultados (' ~ rows|length ~ ')' if q else 'Apagar definitivamente todo o registo' }}</button>
+</form>
+<p class="tag">Apagar é definitivo: liberta espaço na base de dados, mas não pode ser desfeito.</p>
 {% else %}
-<div class="card"><p class="tag">Ainda não há registos.</p></div>
+<div class="card"><p class="tag">{{ 'Nada encontrado para "' ~ q ~ '".' if q else 'Ainda não há registos.' }}</p></div>
 {% endif %}
+
+<script nonce="{{ csp_nonce }}">
+  document.querySelectorAll('form[data-confirm-delete]').forEach(function (f) {
+    f.addEventListener('submit', function (ev) {
+      if (!confirm('Apagar definitivamente ' + (f.q.value ? 'estes resultados' : 'todo o registo') + '? Não pode ser desfeito.')) {
+        ev.preventDefault();
+      }
+    });
+  });
+</script>
 {% endblock %}

@@ -465,12 +465,23 @@ def create_app(test_config=None):
 
     @app.get("/alertas")
     def alerts_page():
-        return render_template("alerts.html", rows=db.recent_log(conn()), open_alerts=alerts.open_alerts(conn()))
+        q = request.args.get("q", "").strip()
+        return render_template("alerts.html", rows=db.search_log(conn(), q or None), q=q,
+                               open_alerts=alerts.open_alerts(conn()))
 
     @app.post("/alertas/visto")
     def alert_seen():
         alerts.mark_seen(conn(), request.form.get("key", ""))
         return redirect(request.referrer or url_for("alerts_page"))
+
+    @app.post("/alertas/apagar")
+    def alerts_delete():
+        q = request.form.get("q", "").strip()
+        n = db.delete_log(conn(), q or None)
+        if n:
+            db.log(conn(), "Registo de ações apagado", f"{n} entrada(s)" + (f' (filtro: "{q}")' if q else " (tudo)"))
+        flash(f"Apagadas {n} entrada(s) do registo." if n else "Nada para apagar.", "ok")
+        return redirect(url_for("alerts_page", q=q) if q else url_for("alerts_page"))
 
     @app.get("/mais")
     def more():
@@ -974,6 +985,19 @@ def create_app(test_config=None):
         cfg = db.get_all(conn())   # sem chave real: parte do capital simulado, não de um número fixo sem relação
         return round(float(cfg["capital_eur"]) * float(cfg["split_trading"]) / 100, 2)
 
+    def trading_capital_usdt():
+        """A fatia 'Trading' inteira, em USDT: real (chave ligada) ou simulada — a mesma base que balance.trading_usage
+        usa para avisar quando os bots ativos a ultrapassam. É o denominador da percentagem mostrada ao criar um bot."""
+        snap = load_snapshot()
+        cfg = db.get_all(conn())
+        total = snap["total_usdt"] if snap else float(cfg["capital_eur"])
+        return total * float(cfg["split_trading"]) / 100
+
+    def active_bots_capital_usdt():
+        """Soma o capital dos bots ativos (não parados), em todos os modos — a mesma soma que a página de bots
+        usa para avisar quando ultrapassa a fatia 'Trading'. Serve para recusar um novo bot que ultrapassaria."""
+        return sum(r["capital_usdt"] for r in botstore.all_bots(conn()) if r["status"] != "stopped")
+
     def preview_grid(pair, capital, mode="sim"):
         """Monta a grelha com o preço e as regras reais do par. Levanta GridRefused se a guarda recusar.
 
@@ -1074,6 +1098,11 @@ def create_app(test_config=None):
             if capital > MAX_BOT_CAPITAL:
                 flash(f"Capital acima do limite ({MAX_BOT_CAPITAL:,.0f} USDT). Confirma que não foi engano.", "error")
                 return redirect(url_for("bot_new", modo=mode))
+            min_capital = float(db.get_all(conn())["min_bot_capital"])
+            if capital < min_capital:
+                flash(f"Capital abaixo do mínimo definido em Configuração ({min_capital:g} USDT). Sobe o capital "
+                      "ou reduz o mínimo em Configuração > Capital e saldo.", "error")
+                return redirect(url_for("bot_new", modo=mode))
             try:
                 if twin and mode == "sim":                              # o duplicado na Testnet obriga o par a existir lá
                     if pair not in make_trader().trading_symbols():
@@ -1085,6 +1114,21 @@ def create_app(test_config=None):
             except (G.GridRefused, BinanceError, TraderError) as exc:
                 flash(str(exc), "error")
                 return redirect(url_for("bot_new", modo=mode))
+            if capital < min_capital:   # preview_grid pode ter reduzido o capital (saldo livre insuficiente na Testnet)
+                flash(f"O saldo livre só dá para {capital:g} USDT, abaixo do mínimo definido em Configuração "
+                      f"({min_capital:g} USDT). Reduz o mínimo ou reforça o saldo da Testnet.", "error")
+                return redirect(url_for("bot_new", modo=mode))
+            trading_capital = trading_capital_usdt()
+            needed = capital * (2 if twin else 1)                 # o duplicado ocupa a fatia duas vezes (dois bots)
+            active = active_bots_capital_usdt()
+            if trading_capital and active + needed > trading_capital + 1e-9:
+                flash(f"Isto ultrapassaria a fatia 'Trading' definida em Configuração ({trading_capital:.2f} USDT): "
+                      f"já tens {active:.2f} USDT em bots ativos"
+                      + (" + o duplicado" if twin else "") +
+                      f", e este bot pediria mais {needed:.2f} USDT. Reduz o capital, pára outro bot, ou ajusta a "
+                      "divisão em Configuração > Capital e saldo.", "error")
+                return redirect(url_for("bot_new", modo=mode))
+            capital_pct = (capital / trading_capital * 100) if trading_capital else None
             params = {**params, "never_sell_below_cost": never_below}   # opcional por bot, desligada por defeito
             if request.form.get("step") == "create":
                 if twin:                                    # o par: um bot na Testnet e o gémeo em simulação, mesmas velas
@@ -1104,8 +1148,11 @@ def create_app(test_config=None):
                 return redirect(url_for("bot_detail", bot_id=bid))
             return render_template("bot_preview.html", chosen=chosen, capital=capital, price=price, rules=rules, g=g,
                                    p={**G.DEFAULTS, **params}, cost=G.cost_pct(), mode=mode, twin=twin,
-                                   never_below=never_below, note=funding_note)
-        return render_template("bot_new.html", cache=cache, capital=default_capital(), mode=mode)
+                                   never_below=never_below, note=funding_note,
+                                   trading_capital=trading_capital, capital_pct=capital_pct)
+        cfg = db.get_all(conn())
+        return render_template("bot_new.html", cache=cache, capital=default_capital(), mode=mode,
+                               min_bot_capital=float(cfg["min_bot_capital"]))
 
     @app.get("/bots/<int:bot_id>")
     def bot_detail(bot_id):

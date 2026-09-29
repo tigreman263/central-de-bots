@@ -72,7 +72,7 @@ def test_config_survives_restart(tmp_path):
     token = csrf_of(c, "/configuracao")
     form = {"csrf": token, "step": "save", "capital_eur": "560", "split_reserve": "50",
             "split_trading": "40", "split_cash": "10", "max_loss_trade": "1.5",
-            "profit_to_reserve": "40", "pause_drawdown": "15", "exclusions": ["memecoins"]}
+            "profit_to_reserve": "40", "pause_drawdown": "15", "min_bot_capital": "20", "exclusions": ["memecoins"]}
     r = c.post("/configuracao", data=form)
     assert r.status_code == 302
 
@@ -101,7 +101,8 @@ def test_preview_shows_before_after_and_saves_nothing(client):
     token = csrf_of(client, "/configuracao")
     form = {"csrf": token, "step": "preview", "capital_eur": "560", "split_reserve": "60",
             "split_trading": "30", "split_cash": "10", "max_loss_trade": "3",
-            "profit_to_reserve": "50", "pause_drawdown": "20", "exclusions": ["memecoins", "leveraged"]}
+            "profit_to_reserve": "50", "pause_drawdown": "20", "min_bot_capital": "20",
+            "exclusions": ["memecoins", "leveraged"]}
     html = client.post("/configuracao", data=form).get_data(as_text=True)
     assert "Perda máxima por operação" in html and "<b>3</b>" in html
     assert 'name="max_loss_trade" inputmode="decimal" value="2"' in client.get("/configuracao").get_data(as_text=True)
@@ -145,7 +146,7 @@ def test_simulation_banner_always_visible(client, tmp_path):
 
 def test_config_shows_recommendations_for_every_field(client):
     html = client.get("/configuracao").get_data(as_text=True)
-    assert html.count('<details class="recs">') == 18  # 6 campos + 6 limiares de risco + 6 critérios de pares
+    assert html.count('<details class="recs">') == 19  # 7 campos + 6 limiares de risco + 6 critérios de pares
     for profile in ("Conservador", "Equilibrado", "Arrojado"):
         assert profile in html
     assert "Erro comum" in html and "Com pouco capital" in html
@@ -175,7 +176,7 @@ def test_every_risk_threshold_explains_itself_and_has_valid_profiles(client):
         assert [p[0] for p in it["profiles"]] == ["Conservador", "Equilibrado", "Arrojado"]
         for _name, _text, attn, high in it["profiles"]:                             # cada perfil passa a validação real
             form = {"split_reserve": "60", "split_trading": "30", "split_cash": "10", "capital_eur": "560",
-                    "max_loss_trade": "2", "profit_to_reserve": "50", "pause_drawdown": "20",
+                    "max_loss_trade": "2", "profit_to_reserve": "50", "pause_drawdown": "20", "min_bot_capital": "20",
                     it["attn_key"]: str(attn), it["high_key"]: str(high)}
             clean, errors = parse_config(MultiDict(form))
             assert not errors, (it["key"], errors)

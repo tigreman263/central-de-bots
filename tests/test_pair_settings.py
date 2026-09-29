@@ -109,7 +109,7 @@ def test_testnet_restriction_is_applied_before_widening():
 # ---------- validação e alterações ----------
 def form(**kw):
     base = {"capital_eur": "560", "split_reserve": "60", "split_trading": "30", "split_cash": "10", "max_loss_trade": "2",
-            "profit_to_reserve": "50", "pause_drawdown": "20", "pair_min_volume": "20", "pair_max_spread": "0.05",
+            "profit_to_reserve": "50", "pause_drawdown": "20", "min_bot_capital": "20", "pair_min_volume": "20", "pair_max_spread": "0.05",
             "pair_range_min": "2", "pair_range_max": "8", "pair_range_target": "4", "pair_adaptive_sent": "1"}
     base.update(kw)
     return Form(base)

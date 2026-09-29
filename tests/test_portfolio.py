@@ -296,7 +296,7 @@ def test_risk_thresholds_are_configurable_and_validated(env):
     c, *_ = env
     base = {"csrf": csrf(c, "/configuracao"), "step": "preview", "capital_eur": "560", "split_reserve": "60",
             "split_trading": "30", "split_cash": "10", "max_loss_trade": "2", "profit_to_reserve": "50",
-            "pause_drawdown": "20", "risk_conc_attn": "50", "risk_conc_high": "40"}
+            "pause_drawdown": "20", "min_bot_capital": "20", "risk_conc_attn": "50", "risk_conc_high": "40"}
     assert "tem de ser maior" in c.post("/configuracao", data=base).get_data(as_text=True)
     base["risk_conc_high"] = "70"
     html = c.post("/configuracao", data=base).get_data(as_text=True)
